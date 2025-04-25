@@ -3,6 +3,32 @@ from torch import nn
 import typing
 from transformers.models.qwen2.modeling_qwen2 import Qwen2ForCausalLM
 from rotation_utils import rotate_linear_input, rotate_linear_output, rotate_embedding, rotate_attn_v
+import model_utils
+
+def untie_word_embeddings(model):
+    if model.config.tie_word_embeddings:
+        # Spinquant is not compatiable with tie_word_embeddings, clone lm_head from embed_tokens
+        # this is because the weight of RMSNorm will be merge into lm_head
+        # and this weight will not be merged into the embeddings
+        # making the weights of lm_head and embed_tokens not the same
+        print("tie word embeddings, clone lm_head from embed_tokens")
+        model.config.tie_word_embeddings = False
+
+        # create a new weight for lm_head
+        new_weight = torch.empty_like(model.model.embed_tokens.weight)
+        new_weight.copy_(model.model.embed_tokens.weight)
+
+        # copy from model.model.embed_tokens.weight
+        model.lm_head.weight = nn.Parameter(new_weight)
+        new_weight = torch.empty_like(model.model.embed_tokens.weight)
+        new_weight.copy_(model.model.embed_tokens.weight)
+
+        # assign the new weight to lm_head
+        model.lm_head.weight = nn.Parameter(new_weight)
+
+        # ensure that the ptr of weight of lm_head is not the same as ptr of the weight of embed_tokens
+        assert model.model.embed_tokens.weight.data_ptr() != model.lm_head.weight.data_ptr()
+
 
 def fuse_ln_linear(layernorm: torch.nn.Module, linear_layers: typing.Iterable[torch.nn.Linear]) -> None:
     """
@@ -22,36 +48,14 @@ def fuse_ln_linear(layernorm: torch.nn.Module, linear_layers: typing.Iterable[to
             linear.bias.data = linear.bias.data.to(linear_dtype)
 
 
-def fuse_layer_norms(model):
-    layers = [layer for layer in model.model.layers]
-
-    # Fuse the linear operations in Layernorm into the adjacent linear blocks.
-    for layer in layers:
-        # fuse the input layernorms into the linear layers
-        fuse_ln_linear(
-            layer.post_attention_layernorm, [layer.mlp.up_proj, layer.mlp.gate_proj]
-        )
-        fuse_ln_linear(
-            layer.input_layernorm,
-            [
-                layer.self_attn.q_proj,
-                layer.self_attn.k_proj,
-                layer.self_attn.v_proj,
-            ],
-        )
-
-        W_norm = layer.post_attention_layernorm.weight.data
-        layer.post_attention_layernorm.weight.data = torch.ones_like(W_norm)
-        W_norm = layer.input_layernorm.weight.data
-        layer.input_layernorm.weight.data = torch.ones_like(W_norm)
-
-    fuse_ln_linear(
-        model.model.norm,
-        [model.lm_head],
-    )
-    W_norm = model.model.norm.weight.data
-    model.model.norm.weight.data = torch.ones_like(W_norm)
+def fuse_layer_norms(model: nn.Module):
+    it = model_utils.NormLinearIterator.from_model(model)
     
+    for norm, linears in it:
+        # fuse the linear operations in Layernorm into the adjacent linear blocks.
+        fuse_ln_linear(norm, linears)
+        W_norm = norm.weight.data
+        norm.weight.data = torch.ones_like(W_norm)
     
 
 @torch.inference_mode()

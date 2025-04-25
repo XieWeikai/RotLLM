@@ -1,5 +1,6 @@
 import typing
 import torch
+from torch import nn
 from hadamard_utils import random_hadamard_matrix
 
 from transformers.models.qwen2.modeling_qwen2 import Qwen2Attention
