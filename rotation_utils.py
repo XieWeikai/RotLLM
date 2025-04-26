@@ -85,10 +85,12 @@ def rotate_embedding(
     W_ = embedding.weight.data.to(device=R_device, dtype=torch.float64)
     # note that the W_ in linear is transpose of W
     embedding.weight.data = (W_ @ (R.to(torch.float64))).to(device=w_device, dtype=dtype)
-    
+
+from typing import Union
+from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VLAttention
 
 def rotate_attn_v(
-    attn: Qwen2Attention,
+    attn: Union[Qwen2Attention, Qwen2VLAttention],
     R_v: torch.Tensor):
     """
     rotate the v (one of the inputs of attention) by a rotation matrix R_v 

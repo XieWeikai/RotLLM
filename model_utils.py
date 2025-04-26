@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Iterator, Tuple, Iterable, List
 import torch.nn as nn
 
-from transformers import Qwen2ForCausalLM
+from transformers import Qwen2ForCausalLM, Qwen2VLForConditionalGeneration
 
 class NormLinearIterator(ABC):
     """iterate over norm and its subsequent linear layers"""
@@ -58,5 +58,5 @@ class Qwen2NormLinearIterator(NormLinearIterator):
         
     @classmethod
     def supports_model(cls, model: nn.Module) -> bool:
-        return isinstance(model, Qwen2ForCausalLM)
+        return isinstance(model, Qwen2ForCausalLM) or isinstance(model, Qwen2VLForConditionalGeneration)
 

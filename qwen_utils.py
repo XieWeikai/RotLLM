@@ -1,7 +1,7 @@
 import torch
 from torch import nn
-import typing
-from transformers.models.qwen2.modeling_qwen2 import Qwen2ForCausalLM
+from typing import Union, Iterable
+from transformers import Qwen2ForCausalLM, Qwen2VLForConditionalGeneration
 from rotation_utils import rotate_linear_input, rotate_linear_output, rotate_embedding, rotate_attn_v
 import model_utils
 
@@ -30,7 +30,7 @@ def untie_word_embeddings(model):
         assert model.model.embed_tokens.weight.data_ptr() != model.lm_head.weight.data_ptr()
 
 
-def fuse_ln_linear(layernorm: torch.nn.Module, linear_layers: typing.Iterable[torch.nn.Linear]) -> None:
+def fuse_ln_linear(layernorm: torch.nn.Module, linear_layers: Iterable[torch.nn.Linear]) -> None:
     """
     fuse the linear operations in Layernorm into the adjacent linear blocks.
     """
@@ -59,7 +59,7 @@ def fuse_layer_norms(model: nn.Module):
     
 
 @torch.inference_mode()
-def rotate_model(model: Qwen2ForCausalLM, 
+def rotate_model(model: Union[Qwen2ForCausalLM, Qwen2VLForConditionalGeneration], 
                  R: torch.Tensor,
                  R_v: torch.Tensor = None):
     config = model.config
@@ -92,6 +92,11 @@ def rotate_model(model: Qwen2ForCausalLM,
         
     # reverse rotation for input of W_lm
     rotate_linear_input([model.lm_head], R.T)
+    
+    if isinstance(model, Qwen2VLForConditionalGeneration):
+        # rotate the output of ViT
+        merger = model.visual.merger
+        rotate_linear_output([merger.mlp[2]], R)
     
 
 from torch.nn import init
