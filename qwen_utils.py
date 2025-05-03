@@ -60,48 +60,51 @@ def fuse_layer_norms(model: nn.Module):
 
 @torch.inference_mode()
 def rotate_model(model: Union[Qwen2ForCausalLM, Qwen2VLForConditionalGeneration], 
-                 R: List[torch.Tensor],
-                 R_v: List[torch.Tensor] = None):
+                 R: torch.Tensor,
+                 R_v: list[torch.Tensor] = None):
     config = model.config
     dim = config.hidden_size
     num_heads = config.num_attention_heads
     head_dim = dim // num_heads
-    
     num_layers = config.num_hidden_layers
     
-    assert len(R) == 2 * num_layers + 1
-    assert all([r.shape == (dim, dim) for r in R]), f"Rotation matrix shape {R} does not match model dimension {dim}"
-    assert len(R_v) == num_layers if R_v is not None else True, f"Rotation matrix shape {R_v} does not match model dimension {num_layers}"
-    assert all([r.shape == (head_dim, head_dim) for r in R_v]) if R_v is not None else True, f"Rotation matrix shape {R_v} does not match model dimension {num_heads}x{head_dim}"
+    assert R.shape == (dim, dim), f"Rotation matrix shape {R.shape} does not match model dimension {dim}"
     
+    if isinstance(R_v, torch.Tensor):
+        # R_v is a single rotation matrix
+        assert R_v.shape == (head_dim, head_dim), f"Rotation matrix shape {R_v.shape} does not match model dimension {dim}"
+        R_v = [R_v for _ in range(num_layers)]
+    
+    assert R_v is None or len(R_v) == num_layers, f"number of rotation matrix {len(R_v)} does not match number of layers {num_layers}"
+    assert all([R_v[i].shape == (head_dim, head_dim) for i in range(num_layers)]) if R_v is not None else True, f"Rotation matrix shape {R_v} does not match model dimension {dim}"
+
     # rotate embedding
-    rotate_embedding(model.model.embed_tokens, R[0])
+    rotate_embedding(model.model.embed_tokens, R)
     
-    # rotate ViT output
     if isinstance(model, Qwen2VLForConditionalGeneration):
         # rotate the output of ViT
         merger = model.visual.merger
-        rotate_linear_output([merger.mlp[2]], R[0])
+        rotate_linear_output([merger.mlp[2]], R)
     
-    for i, layer in enumerate(model.model.layers):
+    for l, layer in enumerate(model.model.layers):
         attn = layer.self_attn
         # reverse rotation for input of W_qkv
-        rotate_linear_input([attn.q_proj, attn.k_proj, attn.v_proj], R[2 * i].T)
+        rotate_linear_input([attn.q_proj, attn.k_proj, attn.v_proj], R.T)
         # rotate output of W_o
-        rotate_linear_output([attn.o_proj], R[2 * i + 1])
+        rotate_linear_output([attn.o_proj], R)
         
         if R_v is not None:
             # rotate v in attention and rotate back before W_o
-            rotate_attn_v(attn, R_v[i])
+            rotate_attn_v(attn, R_v[l])
         
         mlp = layer.mlp
         # reverse rotation for input of W_up and W_gate
-        rotate_linear_input([mlp.up_proj, mlp.gate_proj], R[2 * i + 1].T)
+        rotate_linear_input([mlp.up_proj, mlp.gate_proj], R.T)
         # rotate output of W_down
-        rotate_linear_output([mlp.down_proj], R[2 * i + 2])
+        rotate_linear_output([mlp.down_proj], R)
         
     # reverse rotation for input of W_lm
-    rotate_linear_input([model.lm_head], R[2 * num_layers].T)
+    rotate_linear_input([model.lm_head], R.T)
     
     
 
