@@ -5,6 +5,7 @@ from transformers import Qwen2ForCausalLM, Qwen2VLForConditionalGeneration
 from rotation_utils import rotate_linear_input, rotate_linear_output, rotate_embedding, rotate_attn_v
 import model_utils
 
+
 def untie_word_embeddings(model):
     if model.config.tie_word_embeddings:
         # Spinquant is not compatiable with tie_word_embeddings, clone lm_head from embed_tokens
@@ -30,6 +31,25 @@ def untie_word_embeddings(model):
         assert model.model.embed_tokens.weight.data_ptr() != model.lm_head.weight.data_ptr()
 
 
+class RMSNorm(nn.Module):
+    def __init__(self, eps=1e-6):
+        """
+        Qwen2RMSNorm is equivalent to T5LayerNorm
+        """
+        super().__init__()
+        self.variance_epsilon = eps
+
+    def forward(self, hidden_states):
+        input_dtype = hidden_states.dtype
+        hidden_states = hidden_states.to(torch.float32)
+        variance = hidden_states.pow(2).mean(-1, keepdim=True)
+        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
+        return hidden_states.to(input_dtype)
+
+    def extra_repr(self):
+        return f"eps={self.variance_epsilon}"
+
+
 def fuse_ln_linear(layernorm: torch.nn.Module, linear_layers: Iterable[torch.nn.Linear]) -> None:
     """
     fuse the linear operations in Layernorm into the adjacent linear blocks.
@@ -48,14 +68,28 @@ def fuse_ln_linear(layernorm: torch.nn.Module, linear_layers: Iterable[torch.nn.
             linear.bias.data = linear.bias.data.to(linear_dtype)
 
 
-def fuse_layer_norms(model: nn.Module):
+def fuse_layer_norms(model: nn.Module, replace_ln: bool = False) -> None:
     it = model_utils.NormLinearIterator.from_model(model)
     
-    for norm, linears in it:
+    for father, norm_name, linears in it:
         # fuse the linear operations in Layernorm into the adjacent linear blocks.
+        norm = getattr(father, norm_name)
         fuse_ln_linear(norm, linears)
-        W_norm = norm.weight.data
-        norm.weight.data = torch.ones_like(W_norm)
+        if not replace_ln: # keep the original layernorm/RMSNorm
+            W_norm = norm.weight.data
+            norm.weight.data = torch.ones_like(W_norm)
+            if hasattr(norm, 'bias'):
+                b_norm = norm.bias.data
+                norm.bias.data = torch.zeros_like(b_norm)
+        else:
+            eps = 1e-6
+            if hasattr(norm, 'variance_epsilon'):
+                eps = norm.variance_epsilon
+            if hasattr(norm, 'eps'):
+                eps = norm.eps
+            # replace the layernorm with RMSNorm
+            new_norm = RMSNorm(eps=eps)
+            setattr(father, norm_name, new_norm)
     
 
 @torch.inference_mode()

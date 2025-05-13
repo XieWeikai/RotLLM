@@ -51,6 +51,36 @@ def rotate_linear_input(
         linear.weight.data = (W_ @ (R.T.to(torch.float64))).to(device=w_device, dtype=dtype)
         
 
+# denote centering the vector x as C(x) = x - mu
+# we have C(x) = x - mu = x - mu 1 where 1 is the vector of ones
+#  = x - 1/d sum(x) 1
+# we have sum(x) = x_1 + x_2 + ... + x_n = 1^T x
+# so we have C(x) = x - 1/d (1^T x) 1 = x - 1/d 1 (1^T x) = x - 1/d 1 1^T x
+# that is, we can write C(x) = (I - 1/d 1 1^T) x
+# denote the matrix I - 1/d 1 1^T as C
+# we have C(x) = C x
+# here all the vectors are column vectors
+# it is easy to see that C is a symmetric matrix
+# so for a row vector x we have C(x) = x C
+def center_linear_input(
+    linears: typing.Iterable[torch.nn.Linear]):
+    """
+    Center the input of linear layers
+    i.e. xW + b -> (x - mu)W + b
+    let C(x) = x - mu = x C
+    (x - mu)W + b = x CW + b
+    we know that CW can be view as centering the weight matrix by column
+    """
+    for linear in linears:
+        dtype = linear.weight.dtype
+        W_ = linear.weight.data.to(dtype=torch.float64)
+        # note that the W_ in linear is transpose of W
+        # center echo columns of W equivalent to centering the rows of W_
+        W_mean = W_.mean(dim=1, keepdim=True)
+        W_centered = W_ - W_mean
+        linear.weight.data = W_centered.to(dtype=dtype)
+
+
 def rotate_linear_output(
     linears: typing.Iterable[torch.nn.Linear],
     R: torch.Tensor):
@@ -72,6 +102,28 @@ def rotate_linear_output(
             bias = linear.bias.data.to(device=R_device, dtype=torch.float64)
             linear.bias.data = (bias @ R.to(torch.float64)).to(device=linear.bias.device, 
                                                                dtype=linear.bias.dtype)
+    
+def center_linear_output(
+    linears: typing.Iterable[torch.nn.Linear]):
+    """
+    Center the output of linear layers
+    i.e. xW + b -> (xW + b) C = xW C + bC
+    that is we need to center the weight matrix by row and the bias
+    """
+    for linear in linears:
+        dtype = linear.weight.dtype
+        W_ = linear.weight.data.to(dtype=torch.float64)
+        # note that the W_ in linear is transpose of W
+        # center echo columns of W equivalent to centering the rows of W_
+        W_mean = W_.mean(dim=0, keepdim=True)
+        W_centered = W_ - W_mean
+        linear.weight.data = W_centered.to(dtype=dtype)
+        if linear.bias is not None:
+            bias = linear.bias.data.to(dtype=torch.float64)
+            bias_mean = bias.mean()
+            bias_centered = bias - bias_mean
+            linear.bias.data = bias_centered.to(dtype=dtype)
+
     
 def rotate_embedding(
     embedding: torch.nn.Embedding,
@@ -116,3 +168,65 @@ def rotate_attn_v(
     # we can rotate the o_i by R_v^T to get back the original o_i
     rotate_linear_input([attn.o_proj], torch.block_diag(*([R_v] * num_qo_heads)).T)
 
+
+def test_center_input():
+    """
+    Test the center_input_output function.
+    """
+    from torch.nn import init
+    
+    n = 4
+    dim_in = 512
+    dim_out = 1024
+    x = torch.randn(n, dim_in)
+    l = nn.Linear(dim_in, dim_out)
+    # initialize the weight matrix
+    init.xavier_uniform_(l.weight)
+    # randomly initialize the bias
+    init.uniform_(l.bias)
+    
+    # center the input
+    x_centered = x - x.mean(dim=1, keepdim=True)
+    x_ref = l(x_centered)
+    
+    # center the weight matrix
+    center_linear_input([l])
+    x_output = l(x)
+    # check if the output is the same
+    assert torch.allclose(x_output, x_ref, atol=1e-5), f"Output is not the same: {x_output} != {x_ref}"
+    print("Center input test passed.")
+    
+
+def test_center_output():
+    """
+    Test the center_input_output function.
+    """
+    from torch.nn import init
+    
+    n = 4
+    dim_in = 512
+    dim_out = 1024
+    x = torch.randn(n, dim_in)
+    l = nn.Linear(dim_in, dim_out)
+    # initialize the weight matrix
+    init.xavier_uniform_(l.weight)
+    # randomly initialize the bias
+    init.uniform_(l.bias)
+    
+    # center the output
+    x_o = l(x)
+    x_ref = x_o - x_o.mean(dim=1, keepdim=True)
+    
+    # center the weight matrix
+    center_linear_output([l])
+    x_output = l(x)
+    
+    # check if the output is the same
+    assert torch.allclose(x_output, x_ref, atol=1e-5), f"Output is not the same: {x_output} != {x_ref}"
+    print("Center output test passed.")
+    
+
+if __name__ == "__main__":
+    test_center_input()
+    test_center_output()
+    
