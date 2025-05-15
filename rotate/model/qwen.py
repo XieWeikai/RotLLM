@@ -29,7 +29,7 @@ class Qwen2NormLinearIterator(NormLinearIterator):
         
     @classmethod
     def supports_model(cls, model: nn.Module) -> bool:
-        return isinstance(model, Qwen2ForCausalLM)
+        return isinstance(model, Qwen2ForCausalLM) or isinstance(model, Qwen2VLForConditionalGeneration)
     
 
 @NormLinearIterator.register_iterator
@@ -44,7 +44,7 @@ class Qwen2ViTNormLinearIterator(NormLinearIterator):
             yield layer, "norm2", [layer.mlp.fc1]
         yield self.model.merger, "ln_q", [self.model.merger.mlp[0]]
     
-    
+    @classmethod
     def supports_model(cls, model: nn.Module) -> bool:
         return isinstance(model, Qwen2VisionTransformerPretrainedModel)
 
@@ -203,6 +203,15 @@ def apply_fuse_layer_norms(model: Union[Qwen2ForCausalLM, Qwen2VLForConditionalG
     """
     print("Fuse layer norms")
     fuse_layer_norms(model)
+    
+
+@RotateOperationRegistry.register(Qwen2VisionTransformerPretrainedModel)
+def apply_fuse_layer_norms_vit(model: Qwen2VisionTransformerPretrainedModel, *args, **kwargs):
+    """
+    Fuse the layer norms of the model.
+    """
+    print("Fuse layer norms for ViT of Qwen2")
+    fuse_layer_norms(model, replace_ln=True)
     
 
 @torch.inference_mode()

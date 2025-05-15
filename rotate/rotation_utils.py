@@ -56,26 +56,44 @@ def fuse_ln_linear(layernorm: torch.nn.Module, linear_layers: Iterable[torch.nn.
     """
     fuse the linear operations in Layernorm into the adjacent linear blocks.
     """
+    norm_weight = layernorm.weight.data.double()
+    norm_bias = layernorm.bias.data.double() if hasattr(layernorm, 'bias') else None
+    norm_dim = norm_weight.shape[0]
     for linear in linear_layers:
         linear_dtype = linear.weight.dtype
+        linear_device = linear.weight.device
+        in_dim = linear.in_features
+        
+        # this is for ViT merger
+        # merger takes in merge_size * merge_size patches
+        # while norm takes in only one patch
+        repeat_times = in_dim // norm_dim
+        
+        if in_dim % norm_dim != 0:
+            raise ValueError(f"Linear layer {linear} has in_features {in_dim} not divisible by LayerNorm {layernorm} with weight {norm_weight.shape[0]}")
 
         # Calculating new weight and bias
         W_ = linear.weight.data.double()
-        linear.weight.data = (W_ * layernorm.weight.double()).to(linear_dtype)
+        linear.weight.data = (W_ * (norm_weight.to(linear_device).repeat(repeat_times))).to(linear_dtype)
 
         if hasattr(layernorm, 'bias'):
             if linear.bias is None:
                 linear.bias = torch.nn.Parameter(torch.zeros(linear.out_features, dtype=torch.float64))
-            linear.bias.data = linear.bias.data.double() + torch.matmul(W_, layernorm.bias.double())
+            linear.bias.data = linear.bias.data.double() + torch.matmul(W_, norm_bias.to(linear_device).repeat(repeat_times))
             linear.bias.data = linear.bias.data.to(linear_dtype)
 
 
-def fuse_layer_norms(model: nn.Module, replace_ln: bool = False) -> None:
+def fuse_layer_norms(model: nn.Module, replace_ln: bool = False, verbose=False) -> None:
     it = NormLinearIterator.from_model(model)
 
     for father, norm_name, linears in it:
         # fuse the linear operations in Layernorm into the adjacent linear blocks.
         norm = getattr(father, norm_name)
+        if verbose:
+            print(f"Fusing {norm_name}")
+            print(f"  {norm}")
+            print(f"  {linears}")
+            
         fuse_ln_linear(norm, linears)
         if not replace_ln: # keep the original layernorm/RMSNorm
             W_norm = norm.weight.data
