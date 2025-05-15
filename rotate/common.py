@@ -134,6 +134,12 @@ def op_rotate_linear_input(
     This is done by multiplying the weight matrix by the rotation matrix.
     The rotation matrix should be orthogonal.
     """
+    R_dim = R.shape[0]
+    in_dim = linear.in_features
+    repeat_times = in_dim // R_dim
+    assert in_dim % R_dim == 0, "input dim should be multiple of rotation matrix dim"
+    # refer to patch merger of ViT of Qwen2VL
+    R = torch.block_diag(*([R] * repeat_times))  # sometimes we calculate (x1R, x2R, x3R) W + b, which is equivalent to (x1, x2, x3) diag(R, R, R) W + b
     dtype = linear.weight.dtype
     R_device = R.device
     w_device = linear.weight.device

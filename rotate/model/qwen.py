@@ -182,36 +182,6 @@ def untie_word_embeddings(model):
 
         # ensure that the ptr of weight of lm_head is not the same as ptr of the weight of embed_tokens
         assert model.model.embed_tokens.weight.data_ptr() != model.lm_head.weight.data_ptr()
-
-
-@RotateOperationRegistry.register(Qwen2ForCausalLM)
-@RotateOperationRegistry.register(Qwen2VLForConditionalGeneration)
-def apply_untie_word_embeddings(model: Union[Qwen2ForCausalLM, Qwen2VLForConditionalGeneration], *args, **kwargs):
-    """
-    Untie the word embeddings of the model.
-    """
-    print("Untie word embeddings")
-    untie_word_embeddings(model)
-
-from ..rotation_utils import fuse_layer_norms
-
-@RotateOperationRegistry.register(Qwen2ForCausalLM)
-@RotateOperationRegistry.register(Qwen2VLForConditionalGeneration)
-def apply_fuse_layer_norms(model: Union[Qwen2ForCausalLM, Qwen2VLForConditionalGeneration], *args, **kwargs):
-    """
-    Fuse the layer norms of the model.
-    """
-    print("Fuse layer norms")
-    fuse_layer_norms(model)
-    
-
-@RotateOperationRegistry.register(Qwen2VisionTransformerPretrainedModel)
-def apply_fuse_layer_norms_vit(model: Qwen2VisionTransformerPretrainedModel, *args, **kwargs):
-    """
-    Fuse the layer norms of the model.
-    """
-    print("Fuse layer norms for ViT of Qwen2")
-    fuse_layer_norms(model, replace_ln=True)
     
 
 @torch.inference_mode()
@@ -265,8 +235,116 @@ def rotate_model(model: Union[Qwen2ForCausalLM, Qwen2VLForConditionalGeneration]
 
     # reverse rotation for input of W_lm
     AutoOperation.rotate_input(model.lm_head, R.T)
+    
+
+def center_output_of_each_layer_for_qwen2_vit(model: Qwen2VisionTransformerPretrainedModel):
+    """
+    Center the output of each layer for Qwen2 ViT.
+    """
+    # extract the centering operation from LayerNorm to the previous layer
+    # center the output of the patch embedding
+    AutoOperation.center_output(model.patch_embed)
+    
+    for layer in model.blocks:
+        attn = layer.attn
+        # center the output of proj
+        AutoOperation.center_output(attn.proj)
+        
+        mlp = layer.mlp
+        # center the output of fc2
+        AutoOperation.center_output(mlp.fc2)
 
 
+@torch.inference_mode()
+def rotate_qwen2_ViT(model: Qwen2VisionTransformerPretrainedModel,
+                     R: torch.Tensor,
+                     R_v: list[torch.Tensor] = None):
+    config = model.config
+    dim = config.embed_dim
+    num_heads = config.num_heads
+    head_dim = dim // num_heads
+    num_layers = config.depth
+
+    assert R.shape == (dim, dim), f"Rotation matrix shape {R.shape} does not match model dimension {dim}"
+
+    if isinstance(R_v, torch.Tensor):
+        # R_v is a single rotation matrix
+        assert R_v.shape == (head_dim, head_dim), f"Rotation matrix shape {R_v.shape} does not match model dimension {dim}"
+        R_v = [R_v for _ in range(num_layers)]
+
+    assert R_v is None or len(R_v) == num_layers, f"number of rotation matrix {len(R_v)} does not match number of layers {num_layers}"
+    assert all([R_v[i].shape == (head_dim, head_dim) for i in range(num_layers)]) if R_v is not None else True, f"Rotation matrix shape {R_v} does not match model dimension {dim}"
+
+    # rotate embedding
+    AutoOperation.rotate_output(model.patch_embed, R)
+
+    for l, layer in enumerate(model.blocks):
+        attn = layer.attn
+        # reverse rotation for input of W_qkv
+        AutoOperation.rotate_input(attn.qkv, R.T)
+        # rotate output of W_o
+        AutoOperation.rotate_output(attn.proj, R)
+
+        if R_v is not None:
+            # rotate v in attention and rotate back before W_o
+            AutoOperation.rotate_attn_v(attn, R_v[l])
+
+        mlp = layer.mlp
+        # reverse rotation for input of W_up and W_gate
+        AutoOperation.rotate_input(mlp.fc1, R.T)
+        # rotate output of W_down
+        AutoOperation.rotate_output(mlp.fc2, R)
+    
+    AutoOperation.rotate_input(model.merger.mlp[0], R.T)
+        
+
+@RotateOperationRegistry.register(Qwen2ForCausalLM)
+@RotateOperationRegistry.register(Qwen2VLForConditionalGeneration)
+def apply_untie_word_embeddings(model: Union[Qwen2ForCausalLM, Qwen2VLForConditionalGeneration], *args, **kwargs):
+    """
+    Untie the word embeddings of the model.
+    """
+    print("Untie word embeddings")
+    untie_word_embeddings(model)
+
+from ..rotation_utils import fuse_layer_norms
+
+@RotateOperationRegistry.register(Qwen2ForCausalLM)
+@RotateOperationRegistry.register(Qwen2VLForConditionalGeneration)
+def apply_fuse_layer_norms(model: Union[Qwen2ForCausalLM, Qwen2VLForConditionalGeneration], *args, **kwargs):
+    """
+    Fuse the layer norms of the model.
+    """
+    print("Fuse layer norms")
+    fuse_layer_norms(model)
+    
+
+@RotateOperationRegistry.register(Qwen2VisionTransformerPretrainedModel)
+def apply_fuse_layer_norms_vit(model: Qwen2VisionTransformerPretrainedModel, *args, **kwargs):
+    """
+    Fuse the layer norms of the model.
+    """
+    print("Fuse layer norms for ViT of Qwen2")
+    fuse_layer_norms(model, replace_ln=True)
+    
+@RotateOperationRegistry.register(Qwen2VisionTransformerPretrainedModel)
+def apply_center_output_of_each_layer_for_qwen2_vit(model: Qwen2VisionTransformerPretrainedModel, *args, **kwargs):
+    """
+    Center the output of each layer for Qwen2 ViT.
+    """
+    print("Center output of each layer for Qwen2 ViT")
+    center_output_of_each_layer_for_qwen2_vit(model)
+
+
+@RotateOperationRegistry.register(Qwen2VisionTransformerPretrainedModel)
+def apply_rotate_qwen2_ViT(model: Qwen2VisionTransformerPretrainedModel, *args, **kwargs):
+    """
+    Rotate the model.
+    """
+    print("Rotate ViT model")
+    rotate_qwen2_ViT(model, *args, **kwargs)
+    
+    
 @RotateOperationRegistry.register(Qwen2ForCausalLM)
 @RotateOperationRegistry.register(Qwen2VLForConditionalGeneration)
 def apply_rotate_model(model: Union[Qwen2ForCausalLM, Qwen2VLForConditionalGeneration], *args, **kwargs):
@@ -275,3 +353,4 @@ def apply_rotate_model(model: Union[Qwen2ForCausalLM, Qwen2VLForConditionalGener
     """
     print("Rotate model")
     rotate_model(model, *args, **kwargs)
+    
