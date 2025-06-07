@@ -46,15 +46,19 @@ f(x) = \frac{x}{\|x\|}
 ```
 In LLMs, norm is usually followed by linear.
 ```math
-linear(norm(x)) = norm(x)W_l + b_l \\
-=\left(f(x) \circ w_n + b_n \right)W_l + b_l \\
-=\left(f(x) diag(w_n) + b_n \right)W_l + b_l \\
-=f(x) \ diag(w_n)W_l + (b_nW_l + b_l)
+\begin{aligned}
+linear(norm(x)) &= norm(x)W_l + b_l \\
+&=\left(f(x) \circ w_n + b_n \right)W_l + b_l \\
+&=\left(f(x) diag(w_n) + b_n \right)W_l + b_l \\
+&=f(x) \ diag(w_n)W_l + (b_nW_l + b_l)
+\end{aligned}
 ```
 This implies that $`norm(x)`$ is substitutable with $`f(x)`$. $`w_n`$ and $`b_n`$ can be fuse into linear layer
 ```math
-W_l\rightarrow diag(w_n)W_l \\
-b_n\rightarrow b_nW_l + b_l
+\begin{aligned}
+W_l &\rightarrow diag(w_n)W_l \\
+b_n &\rightarrow b_nW_l + b_l
+\end{aligned}
 ```
 
 This is done by `fuse_layer_norms` in [rotatioin_utils.py](./rotate/rotation_utils.py).
