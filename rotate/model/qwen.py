@@ -1,12 +1,35 @@
 import torch
 from torch import nn
 from typing import Union
-from transformers import Qwen2ForCausalLM, Qwen2VLForConditionalGeneration
+from transformers import Qwen2ForCausalLM
 from ..common import RotateOperationRegistry
 from ..common import AutoOperation
 
 from ..common import NormLinearIterator
-from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VisionTransformerPretrainedModel
+try:
+    from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VisionTransformerPretrainedModel, Qwen2VLForConditionalGeneration
+    from transformers.models.qwen2_vl.modeling_qwen2_vl import PatchEmbed
+    from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VLAttention
+    from transformers.models.qwen2_vl.modeling_qwen2_vl import VisionAttention, VisionFlashAttention2, VisionSdpaAttention
+    HAS_QWEN2_VL = True
+except ImportError:
+    HAS_QWEN2_VL = False
+    class Qwen2VLForConditionalGeneration:
+        pass
+    class Qwen2VisionTransformerPretrainedModel:
+        pass
+    class PatchEmbed:
+        pass
+    class Qwen2VLAttention:
+        pass
+    class VisionAttention:
+        pass
+    class VisionFlashAttention2:
+        pass
+    class VisionSdpaAttention:
+        pass
+    
+    
    
 @NormLinearIterator.register_iterator
 class Qwen2NormLinearIterator(NormLinearIterator):
@@ -48,7 +71,7 @@ class Qwen2ViTNormLinearIterator(NormLinearIterator):
     def supports_model(cls, model: nn.Module) -> bool:
         return isinstance(model, Qwen2VisionTransformerPretrainedModel)
 
-from transformers.models.qwen2_vl.modeling_qwen2_vl import PatchEmbed
+
 @AutoOperation.register_operation("rotate_output", PatchEmbed)
 def op_rotate_patch_embed_output(
     patch_embed: PatchEmbed,
@@ -77,7 +100,6 @@ def op_center_patch_embed_output(patch_embed: PatchEmbed):
     linear.weight.data = W_centered.to(dtype=dtype).reshape(linear.weight.shape)
 
 from transformers.models.qwen2.modeling_qwen2 import Qwen2Attention
-from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VLAttention
 
 @AutoOperation.register_operation("rotate_attn_v", Qwen2Attention)
 @AutoOperation.register_operation("rotate_attn_v", Qwen2VLAttention)
@@ -111,7 +133,7 @@ def op_rotate_attn_v_for_LM(
     AutoOperation.rotate_input(attn.o_proj, torch.block_diag(*([R_v] * num_qo_heads)).T)
 
 
-from transformers.models.qwen2_vl.modeling_qwen2_vl import VisionAttention, VisionFlashAttention2, VisionSdpaAttention
+
 
 @AutoOperation.register_operation("rotate_attn_v", VisionAttention)
 @AutoOperation.register_operation("rotate_attn_v", VisionFlashAttention2)

@@ -5,10 +5,10 @@
 import rotate
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-model_path = "path/to/Qwen2.5-3B-Instruct" # specify the path to the model
+model_path = "/path/to/Qwen2.5-1.5B-Instruct" # specify the path to the model
 
 device = "cuda:7" # specify the device to use
-dtype = "bfloat16" # specify the data type
+dtype = "float32" # specify the data type
 
 def chat(tokenizer, model, prompt, max_new_tokens=1024):
     chats = [
@@ -25,7 +25,7 @@ def chat(tokenizer, model, prompt, max_new_tokens=1024):
         top_p=None,
         top_k=None,
     )
-    response = tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
+    response = tokenizer.batch_decode(outputs, skip_special_tokens=False)[0]
     return response
 
 if __name__ == "__main__":
@@ -51,15 +51,6 @@ if __name__ == "__main__":
     # currently only supports Qwen2ForCausalLM and Qwen2VLForConditionalGeneration
     rotate.rotate_model(model, R, R_v)
     
-    # if you want to also rotate the ViT of Qwen2VLForConditionalGeneration, you can run the following line:
-    # vit_dim = model.config.vision_config.embed_dim
-    # vit_heads = model.config.vision_config.num_heads
-    # vit_head_dim = vit_dim // vit_heads
-    # vit_layers = model.config.vision_config.depth
-    # R_vit = rotate.get_orthogonal_matrix(vit_dim, mode="hadamard", device=device)
-    # R_v_vit = [rotate.get_orthogonal_matrix(vit_head_dim, mode="hadamard", device=device) for _ in range(vit_layers)]
-    # rotate.rotate_model(model.visual, R_vit, R_v_vit)
-    
     # test the rotated model
     print("--------------------------------------")
     response = chat(tokenizer, model, prompt)
@@ -68,7 +59,7 @@ if __name__ == "__main__":
     
     # now you can save the rotated model
     
-    # model.save_pretrained(model_path + "_rotated")
-    # tokenizer.save_pretrained(model_path + "_rotated")
-    # print(f"Rotated model saved to {model_path}_rotated")
+    model.save_pretrained(model_path + "_rotated")
+    tokenizer.save_pretrained(model_path + "_rotated")
+    print(f"Rotated model saved to {model_path}_rotated")
     
