@@ -10,7 +10,7 @@ import rotate
 ... # do whatever you want
 rotate.rotate_model(model, ...) # parameters are customizable
 ```
-You can find an example for `Qwen2ForCausalLM` and `Qwen2VLForConditionalGeneration` in [`qwen.py`](./example/qwen.py).
+You can find an example for `Qwen2ForCausalLM` and `Qwen2VLForConditionalGeneration` in [`qwen2.5-instruct.py`](./example/qwen2.5-instruct.py).
 
 ## WorkFlow of RotLLM
 ### Operations
