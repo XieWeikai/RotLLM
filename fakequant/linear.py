@@ -32,40 +32,27 @@ class FakeQuantLinear(nn.Module):
 
     def quantize_tensor(self, x, num_bits=8, symmetric=True, granularity='per_tensor', axis=-1):
         assert granularity in ['per_tensor', 'per_channel'], "granularity must be 'per_tensor' or 'per_channel'"
-        qmin = - (2 ** (num_bits - 1)) if symmetric else 0
-        qmax = (2 ** (num_bits - 1)) - 1 if symmetric else (2 ** num_bits) - 1
+        
+        qmin = None if symmetric else 0 # FIXME: calculate qmin based on num_bits
+        qmax = None if symmetric else (2 ** num_bits) - 1 # FIXME: calculate qmax based on num_bits
 
         if granularity == 'per_tensor':
-            min_val, max_val = x.min(), x.max()
-
             if symmetric:
-                max_val = max(abs(min_val), abs(max_val))
-                scale = max_val / qmax
-                zero_point = 0.0
+                # TODO: calculate scale and zero_point for symmetric quantization
+                scale = None
+                zero_point = None
             else:
-                scale = (max_val - min_val) / (qmax - qmin + 1e-8)
-                zero_point = qmin - min_val / (scale + 1e-8)
-                zero_point = zero_point.clamp(qmin, qmax).round()
+                # TODO: calculate scale and zero_point for asymmetric quantization
+                scale = None
+                zero_point = None
 
             q_x = torch.clamp((x / scale + zero_point).round(), qmin, qmax)
             dq_x = (q_x - zero_point) * scale
 
         else:  # per_channel
-            # Handle negative axis and shape broadcasting
-            axis = axis if axis >= 0 else x.dim() + axis
-            assert 0 <= axis < x.dim(), f"Invalid axis {axis} for tensor with shape {x.shape}"
-
-            min_val = x.amin(dim=axis, keepdim=True)
-            max_val = x.amax(dim=axis, keepdim=True)
-
-            if symmetric:
-                max_val = torch.maximum(min_val.abs(), max_val.abs())
-                scale = max_val / qmax
-                zero_point = 0.0
-            else:
-                scale = (max_val - min_val) / (qmax - qmin + 1e-8)
-                zero_point = qmin - min_val / (scale + 1e-8)
-                zero_point = zero_point.clamp(qmin, qmax).round()
+            # TODO: quantize along the specified axis
+            scale = None
+            zero_point = None
 
             q_x = torch.clamp((x / scale + zero_point).round(), qmin, qmax)
             dq_x = (q_x - zero_point) * scale
