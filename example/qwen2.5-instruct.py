@@ -5,7 +5,7 @@
 import rotate
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-model_path = "/path/to/Qwen2.5-1.5B-Instruct" # specify the path to the model
+model_path = "path/to/Qwen2.5-1.5B-Instruct" # specify the path to the model
 
 device = "cuda:7" # specify the device to use
 dtype = "float32" # specify the data type
@@ -28,15 +28,22 @@ def chat(tokenizer, model, prompt, max_new_tokens=1024):
     response = tokenizer.batch_decode(outputs, skip_special_tokens=False)[0]
     return response
 
+
+import torch
+from torch import nn
+from fakequant.linear import replace_linear_with_fakequant
+
 if __name__ == "__main__":
     # load the model and tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_path)
-    model = AutoModelForCausalLM.from_pretrained(model_path, device_map="auto", torch_dtype=dtype)
+    model = AutoModelForCausalLM.from_pretrained(model_path, device_map=device, torch_dtype=dtype)
     model.eval()
 
     prompt = "write me a binary search in C"
     response = chat(tokenizer, model, prompt)
     print(response)
+    
+    
     
     # model info
     num_layers = model.config.num_hidden_layers
@@ -56,10 +63,18 @@ if __name__ == "__main__":
     response = chat(tokenizer, model, prompt)
     print(response)
     
+    # test the rotated model with fake quantization
+    # if you want to use fake quantization, uncomment the following lines
+    
+    # replace_linear_with_fakequant(model, 8)
+    # print(f"quantized model: {model}")
+    # response = chat(tokenizer, model, prompt)
+    # print(f"after quantization:\n\n {response}")
+    
     
     # now you can save the rotated model
     
-    model.save_pretrained(model_path + "_rotated")
-    tokenizer.save_pretrained(model_path + "_rotated")
-    print(f"Rotated model saved to {model_path}_rotated")
+    # model.save_pretrained(model_path + "_rotated")
+    # tokenizer.save_pretrained(model_path + "_rotated")
+    # print(f"Rotated model saved to {model_path}_rotated")
     

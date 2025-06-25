@@ -139,7 +139,12 @@ def op_rotate_linear_input(
     repeat_times = in_dim // R_dim
     assert in_dim % R_dim == 0, "input dim should be multiple of rotation matrix dim"
     # refer to patch merger of ViT of Qwen2VL
+    # this is just a trick for patch merger of Qwen2VL, where the input is a concatenation of multiple patches
+    # meaning the rotation matrix R is applied to each patch separately
+    # so we need to repeat the rotation matrix for each patch
+    # you can ignore this line of code if you are not using patch merger
     R = torch.block_diag(*([R] * repeat_times))  # sometimes we calculate (x1R, x2R, x3R) W + b, which is equivalent to (x1, x2, x3) diag(R, R, R) W + b
+    
     dtype = linear.weight.dtype
     R_device = R.device
     w_device = linear.weight.device
@@ -165,12 +170,14 @@ def op_rotate_linear_output(
     w_device = linear.weight.device
     W_ = linear.weight.data.to(device=R_device, dtype=torch.float64)
     # note that the W_ in linear is transpose of W
-    linear.weight.data = (R.T.to(torch.float64) @ W_).to(device=w_device, dtype=dtype)
+    # now rotate the weight matrix
+    # your code here
+    pass
+    
     # rotate the bias
     if linear.bias is not None:
-        bias = linear.bias.data.to(device=R_device, dtype=torch.float64)
-        linear.bias.data = (bias @ R.to(torch.float64)).to(device=linear.bias.device, 
-                                                            dtype=linear.bias.dtype)
+        # your code here to rotate the bias
+        pass
     
 @AutoOperation.register_operation("rotate_output", nn.Embedding)
 def op_rotate_embedding(
@@ -178,13 +185,14 @@ def op_rotate_embedding(
     R: torch.Tensor):
     """
     Rotate each embedding vector by a rotation matrix R.
+    i.e. Emb(i) = E_i where E_i is the i-th embedding vector
+         after rotation, Emb(i) = E_i R
     """
     dtype = embedding.weight.dtype
     R_device = R.device
     w_device = embedding.weight.device
-    W_ = embedding.weight.data.to(device=R_device, dtype=torch.float64)
-    # note that the W_ in linear is transpose of W
-    embedding.weight.data = (W_ @ (R.to(torch.float64))).to(device=w_device, dtype=dtype)
+    # your code here to rotate the embedding weight matrix
+    pass
 
         
    
@@ -370,4 +378,58 @@ def rotate_model(module: Any, *args, **kwargs) -> None:
         operation(module, *args, **kwargs)
 
 
+if __name__ == "__main__":
+    from rotate.rotation_utils import get_orthogonal_matrix
+    
+    # test of AutoOperation
+    
+    # test rotate_input for nn.Linear
+    in_dim = 128
+    out_dim = 64
+    linear = nn.Linear(in_dim, out_dim)
+    # get a random orthogonal matrix
+    R = get_orthogonal_matrix(in_dim, mode="hadamard")
+    # random input
+    x = torch.randn(10, in_dim)
+    # rotate the input
+    x_rotated = (x.to(R.dtype) @ R).to(x.dtype)
+    y_ref = linear(x_rotated)
+    # apply the rotate_input operation
+    AutoOperation.rotate_input(linear, R)
+    # check if the output is the same
+    y = linear(x)
+    assert torch.allclose(y, y_ref, atol=1e-5), "rotate_input operation failed"
+    print("rotate_input operation for nn.Linear passed")
+    
+    # test rotate_output for nn.Linear
+    linear = nn.Linear(in_dim, out_dim)
+    # get a random orthogonal matrix
+    R = get_orthogonal_matrix(out_dim, mode="hadamard")
+    # random input
+    x = torch.randn(10, in_dim)
+    y = linear(x)
+    # rotate the output
+    y_rotated = (y.to(R.dtype) @ R).to(y.dtype)
+    # apply the rotate_output operation
+    AutoOperation.rotate_output(linear, R)
+    # check if the output is the same
+    y_new = linear(x)
+    assert torch.allclose(y_new, y_rotated, atol=1e-5), "rotate_output operation failed"
+    print("rotate_output operation for nn.Linear passed")
+    
+    # test rotate_output for nn.Embedding
+    embedding = nn.Embedding(100, in_dim)
+    # get a random orthogonal matrix
+    R = get_orthogonal_matrix(in_dim, mode="hadamard")
+    # random input
+    x = torch.randint(0, 100, (10,))
+    y = embedding(x)
+    # rotate the output
+    y_rotated = (y.to(R.dtype) @ R).to(y.dtype)
+    # apply the rotate_output operation
+    AutoOperation.rotate_output(embedding, R)
+    # check if the output is the same
+    y_new = embedding(x)
+    assert torch.allclose(y_new, y_rotated, atol=1e-5), "rotate_output operation for nn.Embedding failed"
+    print("rotate_output operation for nn.Embedding passed")
     
