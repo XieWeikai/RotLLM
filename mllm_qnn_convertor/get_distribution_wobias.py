@@ -5,10 +5,10 @@ import json
 import torch
 import numpy as np
 
-from args import args
-from model_interface import ModelFactory
+import argparse
+import json
 
-args.no_quantize=True
+from model_interface import ModelFactory
 
 
 def flatten_act_dict(act_dict):
@@ -48,6 +48,7 @@ def get_act_percentage(act_dict: dict, threshold: float):
 @torch.no_grad()
 def get_static_decoder_layer_scales_distribution(
     model_interface,
+    dataset_path,
     num_samples=32,
 ):
     act_dict = {}
@@ -86,7 +87,7 @@ def get_static_decoder_layer_scales_distribution(
 
     from tqdm import tqdm
     
-    dataset = model_interface.load_dataset(args.dataset_path, split="test")
+    dataset = model_interface.load_dataset(dataset_path, split="test")
 
     # 打乱数据集，设置随机种子以确保可重复性  
     shuffled_dataset = dataset.shuffle(seed=42)  
@@ -142,17 +143,26 @@ def get_act_distribution_stat(act_dict):
 
 
 if __name__ == "__main__":
-    # 需要在args中添加model_type参数
-    model_type = getattr(args, 'model_type', 'showui')  # 默认为showui
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config_file", type=str, default="mllm_qnn_convertor/config/Qwen2-get-dis.json", help="Path to the config file")
+    args = parser.parse_args()
+    
+    config = json.load(open(args.config_file, "r"))
+
+    model_type = config["model_type"]
+    tokenizer_name = config["tokenizer_name"]
+    model_name = config["model_name"]
+    output_file = config["output_file"]
+    model_config = config.get("model_config", {})
     
     model_interface = ModelFactory.create_model(
         model_type=model_type,
-        tokenizer_name=args.tokenizer_name,
-        model_name=args.model_name,
-        args=args
+        tokenizer_name=tokenizer_name,
+        model_name=model_name,
+        args= model_config
     )
-
-    act_dict = get_static_decoder_layer_scales_distribution(model_interface, 64)
+    # FIXME: when num_samples is 1, this script will panic
+    act_dict = get_static_decoder_layer_scales_distribution(model_interface, config["dataset_path"], config["num_samples"])
 
     print("begin_flatten")
     act_dict = flatten_act_dict(act_dict)
@@ -169,6 +179,6 @@ if __name__ == "__main__":
     print("get act distribution")
     all_stat = get_act_distribution_stat(act_dict)
     res_dict = {"ori": ori_scale, "top_0_1": top_0_1_scale, "all_stat": all_stat}
-    with open(args.output_file, "w") as f:
+    with open(output_file, "w") as f:
         json.dump(res_dict, f, indent=4, ensure_ascii=False)
 

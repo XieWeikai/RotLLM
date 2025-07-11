@@ -1,10 +1,13 @@
 {
     "model_type": "qwen",
     "model_name": "/data/share/Qwen1.5-1.8B-Chat",
+    "tokenizer_name": "/data/share/Qwen1.5-1.8B-Chat",
     "dataset_path": "/data/zhanghao/mllm-vit-workspace/profilling_act/assets/pile-val-backup",
     "output_file": "Qwen1.5-1.8B-Rot_pile_val_dis.json",
+    "num_samples": 2,
     "model_config": {
         "online_rotation": true,
-        "random_rotate": true
+        "random_rotate": true,
+        "save_rotation": "Qwen1.5-1.8B-R.bin"
     }
 }
