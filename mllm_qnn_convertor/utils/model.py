@@ -117,7 +117,7 @@ class LLMNPUShowUIModel:
                 qo_heads = model.config.num_attention_heads
                 head_dim = dim // qo_heads
                 
-                # get randome hadamard rotation matrix
+                # get random hadamard rotation matrix
                 R = rotate.get_orthogonal_matrix(dim, mode="hadamard", device=device)
                 R_v = [rotate.get_orthogonal_matrix(head_dim, mode="hadamard", device=device) for _ in range(num_layers)]
                 
@@ -128,6 +128,16 @@ class LLMNPUShowUIModel:
                 vit_layers = model.config.vision_config.depth
                 R_vit = rotate.get_orthogonal_matrix(vit_dim, mode="hadamard", device=device)
                 R_vs_vit = [rotate.get_orthogonal_matrix(vit_head_dim, mode="hadamard", device=device) for _ in range(vit_layers)]
+                
+                if args.save_rotation:
+                    R_bin = {
+                        "R": R,
+                        "R_v": R_v,
+                        "R_vit": R_vit,
+                        "R_vs_vit": R_vs_vit
+                    }
+                    torch.save(R_bin, args.save_rotation)
+                    print(f"Rotation matrix saved to {args.save_rotation}")
 
             from rotate import rotate_model
 

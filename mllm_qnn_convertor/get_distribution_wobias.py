@@ -141,6 +141,14 @@ def get_act_distribution_stat(act_dict):
             act_distribution[layer] = get_act_distribution_stat(scales)
     return act_distribution
 
+class ConfigDict(dict):
+    __getattr__ = dict.__getitem__
+    __setattr__ = dict.__setitem__
+    __delattr__ = dict.__delitem__
+
+    def __dir__(self):
+        return list(self.keys()) + list(super().__dir__())
+    
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -153,7 +161,7 @@ if __name__ == "__main__":
     tokenizer_name = config["tokenizer_name"]
     model_name = config["model_name"]
     output_file = config["output_file"]
-    model_config = config.get("model_config", {})
+    model_config = ConfigDict(config.get("model_config", {}))
     
     model_interface = ModelFactory.create_model(
         model_type=model_type,

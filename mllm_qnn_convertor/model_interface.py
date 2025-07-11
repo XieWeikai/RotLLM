@@ -127,6 +127,7 @@ class ModelInterface(ABC):
         return self.model
 
 from transformers import AutoTokenizer, AutoModelForCausalLM
+import rotate
 
 @ModelRegistry.register("qwen")
 class QwenModelInterface(ModelInterface):
@@ -137,6 +138,32 @@ class QwenModelInterface(ModelInterface):
             torch_dtype=torch.float32,
             device_map="auto")
         self.model.eval()
+        if self.args.online_rotation:
+            if self.args.random_rotate:
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                # model info
+                num_layers = self.model.config.num_hidden_layers
+                dim = self.model.config.hidden_size
+                qo_heads = self.model.config.num_attention_heads
+                head_dim = dim // qo_heads
+                # get random hadamard rotation matrix
+                R = rotate.get_orthogonal_matrix(dim, mode="hadamard", device=device)
+                R_v = [rotate.get_orthogonal_matrix(head_dim, mode="hadamard" , device=device) for _ in range(num_layers)]
+                
+                if self.args.save_rotation:
+                    R_bin = {
+                        "R": R,
+                        "R_v": R_v,
+                    }
+                    torch.save(R_bin, self.args.save_rotation)
+                    print(f"Rotation matrix saved to {self.args.save_rotation}")
+            else:
+                R_bin = torch.load(self.args.R_path)
+                R = R_bin["R"]
+                R_v = R_bin["R_v"]
+                
+            rotate.rotate_model(self.model, R, R_v)
+                
         
     def load_dataset(self, dataset_path: str, split: str = "test") -> Dataset:
         from datasets import load_dataset
