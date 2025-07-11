@@ -1,29 +1,15 @@
-# get photo info from json
-from collections import defaultdict
 from functools import partial
 import gc
 import json
-
-from tqdm import tqdm
-from PIL import Image
 
 import torch
 import numpy as np
 
 from args import args
+from model_interface import ModelFactory
+
 args.no_quantize=True
 
-# from evaluate import load
-from datasets import load_dataset
-
-from copy import deepcopy
-
-
-from utils.model import LLMNPUShowUIModel
-
-model = LLMNPUShowUIModel(args.tokenizer_name, args.model_name, args=args)
-
-act_dict = defaultdict(dict)
 
 def flatten_act_dict(act_dict):
     for layer, scales in act_dict.items():
@@ -61,14 +47,17 @@ def get_act_percentage(act_dict: dict, threshold: float):
 
 @torch.no_grad()
 def get_static_decoder_layer_scales_distribution(
-    model,
+    model_interface,
     num_samples=32,
 ):
-
+    act_dict = {}
+    
     def stat_io_hook(m, x, y, name):
         if isinstance(x, tuple):
             x = x[0]
-        if name not in act_dict or "input" not in act_dict[name]:
+        if name not in act_dict:
+            act_dict[name] = {}
+        if "input" not in act_dict[name]:
             act_dict[name]["input"] = []
         act_dict[name]["input"].append(x.clone().detach().cpu().numpy())
         if isinstance(y, tuple):
@@ -88,66 +77,55 @@ def get_static_decoder_layer_scales_distribution(
         act_dict[name]["output"].append(ty.detach().cpu().numpy())
 
     hooks = []
-    for name, m in model.model.named_modules():
+    model_for_hook = model_interface.get_model_for_hook()
+    for name, m in model_for_hook.named_modules():
         if isinstance(m, torch.nn.Linear):
             hooks.append(m.register_forward_hook(partial(stat_io_hook, name=name)))
         
     print("Collecting activation scales...")
 
-    import ast
     from tqdm import tqdm
-    from datasets import load_dataset
-
-    # dataset = load_dataset("/data/share/datasets_roci/ScreenSpot/", split="test", cache_dir="/data/xudaliang/huggingface_cache/")  # noqa E501
-    dataset = load_dataset("/data/share/datasets_roci/ScreenSpot/", split="test")  # noqa E501
+    
+    dataset = model_interface.load_dataset(args.dataset_path, split="test")
 
     # 打乱数据集，设置随机种子以确保可重复性  
     shuffled_dataset = dataset.shuffle(seed=42)  
 
-    # 随机选择前 100 个样本  
+    # 随机选择前 num_samples 个样本  
     random_sampled_dataset = shuffled_dataset.select(range(num_samples))  
 
-
-    mobile_data_length = 0
+    processed_count = 0
     correct = 0
 
     with tqdm(total=len(random_sampled_dataset)) as pbar:
         
-        pbar.set_description("ScreenSpotPipelineImpl Processing:")
+        pbar.set_description("Processing Dataset:")
         for data in random_sampled_dataset:
-            pc_or_mobile = data["file_name"].split("_")[0]
-            if data["data_type"] in ["text"] and pc_or_mobile == "mobile":
-                mobile_data_length += 1
-                point = []
-                out_text = ""
-                # try:
-                out_text = model.infer(data["image"], data["instruction"], None)[0]
-                point = ast.literal_eval(out_text)
-                # except:
-                #     print(data["file_name"], "ast parse failed", out_text)
-                #     pbar.update(1)
-                #     continue
-                bbox = data["bbox"]
-                x_min, y_min, x_max, y_max = bbox
-                px, py = point
-
-                print(px, py)
-
-                is_inside = (x_min <= px <= x_max) and (y_min <= py <= y_max)
-                if is_inside:
+            if model_interface.should_process_sample(data):
+                processed_count += 1
+                
+                # 进行推理
+                inference_result = model_interface.infer(data)
+                
+                # 评估结果
+                is_correct = model_interface.evaluate_sample(data, inference_result)
+                if is_correct:
                     correct += 1
                 else:
-                    print(data["file_name"], "position failed", bbox, point)
+                    print(f"Sample failed: {data.get('file_name', 'unknown')}")
+                    
             pbar.update(1)
         
-        print("acc: ", correct / mobile_data_length)
+        if processed_count > 0:
+            print(f"Accuracy: {correct / processed_count:.4f} ({correct}/{processed_count})")
+        else:
+            print("No samples were processed")
         
 
     for hook in hooks:
         hook.remove()
 
     return act_dict
-
 
 
 def get_act_distribution_stat(act_dict):
@@ -163,23 +141,34 @@ def get_act_distribution_stat(act_dict):
     return act_distribution
 
 
-get_static_decoder_layer_scales_distribution(model, 64)
+if __name__ == "__main__":
+    # 需要在args中添加model_type参数
+    model_type = getattr(args, 'model_type', 'showui')  # 默认为showui
+    
+    model_interface = ModelFactory.create_model(
+        model_type=model_type,
+        tokenizer_name=args.tokenizer_name,
+        model_name=args.model_name,
+        args=args
+    )
 
-print("begin_flatten")
-act_dict = flatten_act_dict(act_dict)
-print("finish flatten")
+    act_dict = get_static_decoder_layer_scales_distribution(model_interface, 64)
 
-# origin model scale
-print("begin_calculate")
-print("get act 0")
-ori_scale = get_act_percentage(act_dict, 0)
-# scale after remove top 0.1% outliers
-print("get act 0.001")
-top_0_1_scale = get_act_percentage(act_dict, 0.001)
-# get mean and std of all scales
-print("get act distribution")
-all_stat = get_act_distribution_stat(act_dict)
-res_dict = {"ori": ori_scale, "top_0_1": top_0_1_scale, "all_stat": all_stat}
-with open(args.output_file, "w") as f:
-    json.dump(res_dict, f, indent=4, ensure_ascii=False)
+    print("begin_flatten")
+    act_dict = flatten_act_dict(act_dict)
+    print("finish flatten")
+
+    # origin model scale
+    print("begin_calculate")
+    print("get act 0")
+    ori_scale = get_act_percentage(act_dict, 0)
+    # scale after remove top 0.1% outliers
+    print("get act 0.001")
+    top_0_1_scale = get_act_percentage(act_dict, 0.001)
+    # get mean and std of all scales
+    print("get act distribution")
+    all_stat = get_act_distribution_stat(act_dict)
+    res_dict = {"ori": ori_scale, "top_0_1": top_0_1_scale, "all_stat": all_stat}
+    with open(args.output_file, "w") as f:
+        json.dump(res_dict, f, indent=4, ensure_ascii=False)
 

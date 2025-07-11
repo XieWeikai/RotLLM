@@ -1,0 +1,12 @@
+{
+    "model_type": "qwen-vl",
+    "model_name": "/data/share/ShowUI-2B",
+    "dataset_path": "/data/share/datasets_roci/ScreenSpot",
+    "output_file": "showui_rota_screenqa_nobias_dis.json",
+    "model_config": {
+        "no_quantize": true,
+        "rotate_vit": true,
+        "online_rotation": true,
+        "random_rotate": true
+    }
+}

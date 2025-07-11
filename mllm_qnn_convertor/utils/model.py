@@ -92,8 +92,7 @@ class LLMNPUShowUIModel:
     def __init__(self, tokenizer_name,
                  model_name,
                  args, t01m_clip_threshold=64):
-                 #t01m_clip_threshold, quantize_ViT=True):
-
+        
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
         self.processor = LLMNPUShowUIProcessor(tokenizer_name)
         model = Qwen2VLForConditionalGeneration.from_pretrained(

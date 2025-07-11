@@ -52,4 +52,7 @@ parser.add_argument(
     )
 
 parser.add_argument("--save_clip_info", action="store_true", help="save clip info or not")
+# 添加模型类型参数
+parser.add_argument('--model_type', type=str, default='qwen-vl', 
+                    help='Model type (qwen, qwen-vl)')
 args, remain_args = parser.parse_known_args()
