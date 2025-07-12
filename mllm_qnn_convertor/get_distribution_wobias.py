@@ -141,14 +141,7 @@ def get_act_distribution_stat(act_dict):
             act_distribution[layer] = get_act_distribution_stat(scales)
     return act_distribution
 
-class ConfigDict(dict):
-    __getattr__ = dict.__getitem__
-    __setattr__ = dict.__setitem__
-    __delattr__ = dict.__delitem__
-
-    def __dir__(self):
-        return list(self.keys()) + list(super().__dir__())
-    
+from utils import ConfigDict
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

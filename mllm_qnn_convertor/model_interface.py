@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union, Set
 import torch
 from datasets import Dataset
 
@@ -125,11 +125,44 @@ class ModelInterface(ABC):
             torch.nn.Module: 模型对象
         """
         return self.model
+    
+    @abstractmethod
+    def get_skip_layers(self) -> Dict[str, Set[str]]:
+        """
+        获取需要跳过的层
+        
+        Returns:
+            Dict: {"skip_export": set(), "no_clip_input": set(), "no_clip_output": set()}
+        """
+        pass
+    
+    @abstractmethod
+    def get_special_quantization_rules(self) -> Dict[str, Any]:
+        """
+        获取特殊量化规则
+        
+        Returns:
+            Dict: 特殊量化规则
+        """
+        pass
+    
+    def should_transpose_weight(self, layer_name: str) -> bool:
+        """
+        判断权重是否需要转置（QNN特定需求）
+        
+        Args:
+            layer_name: 层名称
+            
+        Returns:
+            bool: 是否需要转置
+        """
+        return True  # 默认需要转置
+
 
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import rotate
 
-@ModelRegistry.register("qwen")
+@ModelRegistry.register("qwen2")
 class QwenModelInterface(ModelInterface):
     def _load_model(self):
         self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_name)
@@ -138,8 +171,10 @@ class QwenModelInterface(ModelInterface):
             torch_dtype=torch.float32,
             device_map="auto")
         self.model.eval()
-        if self.args.online_rotation:
-            if self.args.random_rotate:
+        if getattr(self.args, 'online_rotation', False):
+            print("Online rotation enabled")
+            if getattr(self.args, 'random_rotate', False):
+                print("Using random rotation matrix")
                 device = "cuda" if torch.cuda.is_available() else "cpu"
                 # model info
                 num_layers = self.model.config.num_hidden_layers
@@ -150,7 +185,7 @@ class QwenModelInterface(ModelInterface):
                 R = rotate.get_orthogonal_matrix(dim, mode="hadamard", device=device)
                 R_v = [rotate.get_orthogonal_matrix(head_dim, mode="hadamard" , device=device) for _ in range(num_layers)]
                 
-                if self.args.save_rotation:
+                if getattr(self.args, 'save_rotation', None):
                     R_bin = {
                         "R": R,
                         "R_v": R_v,
@@ -158,10 +193,12 @@ class QwenModelInterface(ModelInterface):
                     torch.save(R_bin, self.args.save_rotation)
                     print(f"Rotation matrix saved to {self.args.save_rotation}")
             else:
-                R_bin = torch.load(self.args.R_path)
+                print(f"Using pre-defined rotation matrix from {getattr(self.args, 'R_path', './R.bin')}")
+                R_bin = torch.load(getattr(self.args, 'R_path', './R.bin'))
                 R = R_bin["R"]
                 R_v = R_bin["R_v"]
-                
+            
+            print(f"Rotate model")
             rotate.rotate_model(self.model, R, R_v)
                 
         
@@ -184,6 +221,20 @@ class QwenModelInterface(ModelInterface):
 
     def should_process_sample(self, sample: Dict[str, Any]) -> bool:
         return True
+    
+    def get_skip_layers(self) -> Dict[str, Set[str]]:
+        return {
+            "skip_export": {"vision_tower"},  # 跳过视觉塔
+            "no_clip_input": set(),
+            "no_clip_output": set(),
+        }
+    
+    def get_special_quantization_rules(self) -> Dict[str, Any]:
+        return {
+            "skip_layers": {"lm_head", "merger"},  # 不量化的层
+            "head_layers": {"head"},  # head层特殊处理
+        }
+
 
 
 @ModelRegistry.register("qwen-vl")
@@ -227,6 +278,19 @@ class ShowUIModelInterface(ModelInterface):
     def get_model_for_hook(self) -> torch.nn.Module:
         """获取用于注册hook的模型对象"""
         return self.model.model
+    
+    def get_skip_layers(self) -> Dict[str, Set[str]]:
+        return {
+            "skip_export": {"vision_tower"},
+            "no_clip_input": set(),
+            "no_clip_output": set(),
+        }
+    
+    def get_special_quantization_rules(self) -> Dict[str, Any]:
+        return {
+            "skip_layers": {"lm_head", "merger"},
+            "head_layers": {"lm_head"},
+        }
 
 
 class ModelFactory:
@@ -248,7 +312,6 @@ class ModelFactory:
         Returns:
             ModelInterface: 模型接口实例
         """
-        model_type = model_type.lower()
         model_class = ModelRegistry.get_model_class(model_type)
         return model_class(tokenizer_name, model_name, args)
     
@@ -272,4 +335,3 @@ class ModelFactory:
             model_class: 模型类
         """
         ModelRegistry._registry[model_type] = model_class
-    
