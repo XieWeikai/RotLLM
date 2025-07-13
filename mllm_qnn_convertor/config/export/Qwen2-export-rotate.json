@@ -1,0 +1,10 @@
+{
+    "model_type": "qwen2",
+    "model_name": "/data/share/Qwen1.5-1.8B-Chat",
+    "tokenizer_name": "/data/share/Qwen1.5-1.8B-Chat",
+    "output_model": "mllm_qnn_convertor/models/Qwen1.5-1.8B-Rot.bin",
+    "model_config": {
+        "online_rotation": true,
+        "R_path": "mllm_qnn_convertor/R/Qwen1.5-1.8B-R.bin"
+    }
+}
