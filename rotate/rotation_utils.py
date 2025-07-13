@@ -102,11 +102,28 @@ def fuse_layer_norms(model: nn.Module, replace_ln: bool = False, verbose=False) 
                 b_norm = norm.bias.data
                 norm.bias.data = torch.zeros_like(b_norm)
         else:
-            eps = 1e-6
-            if hasattr(norm, 'variance_epsilon'):
-                eps = norm.variance_epsilon
-            if hasattr(norm, 'eps'):
-                eps = norm.eps
-            # replace the layernorm with RMSNorm
-            new_norm = RMSNorm(eps=eps)
+            # eps = 1e-6
+            # if hasattr(norm, 'variance_epsilon'):
+            #     eps = norm.variance_epsilon
+            # if hasattr(norm, 'eps'):
+            #     eps = norm.eps
+            # # replace the layernorm with RMSNorm
+            # new_norm = RMSNorm(eps=eps)
+            # setattr(father, norm_name, new_norm)
+            
+            from torch.nn import RMSNorm
+            
+            # in this case, we replace the layernorm with RMSNorm implemented by torch
+            # torch's RMSNorm has weight
+            # in some cases, we need to save the weight though it is always 1.0
+            # our implementation of RMSNorm does not have weight
+            # so here we use torch's RMSNorm
+            # and set the weight to 1.0
+            eps = getattr(norm, 'eps', getattr(norm, 'variance_epsilon', 1e-6))
+            normalized_shape = norm.normalized_shape if hasattr(norm, 'normalized_shape') else norm.weight.shape
+        
+            device = norm.weight.device
+            dtype = norm.weight.dtype
+            new_norm = RMSNorm(normalized_shape=normalized_shape, eps=eps).to(device=device, dtype=dtype)
+            new_norm.weight.data.fill_(1.0)
             setattr(father, norm_name, new_norm)
