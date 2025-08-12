@@ -5,7 +5,7 @@ from transformers import Qwen2ForCausalLM
 from ..common import RotateOperationRegistry
 from ..common import AutoOperation
 
-from ..common import NormLinearIterator
+from ..common import NormLinearIterator 
 try:
     from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2VisionTransformerPretrainedModel, Qwen2VLForConditionalGeneration
     from transformers.models.qwen2_vl.modeling_qwen2_vl import PatchEmbed
@@ -32,7 +32,7 @@ except ImportError:
     
    
 @NormLinearIterator.register_iterator
-class Qwen2NormLinearIterator(NormLinearIterator):
+class Qwen2NormLinearIterator(NormLinearIterator):      # 用于遍历 Qwen2 模型中 Norm + Linear 模块组合的迭代器
     def __init__(self, model: Qwen2ForCausalLM):
         super().__init__()
         self.model = model
@@ -124,7 +124,7 @@ def op_rotate_attn_v_for_LM(
     # so we need to rotate the output of W_v by diag(R_v, R_v, ..., R_v)
     R_v_rot = torch.block_diag(*([R_v] * num_kv_heads))
     # rotate_linear_output([attn.v_proj], R_v_rot)
-    AutoOperation.rotate_output(attn.v_proj, R_v_rot)
+    AutoOperation.rotate_output(attn.v_proj, R_v_rot)       
     
     # then we need to rotate back the input of W_o
     # since o_i is linear combination of v_i
@@ -181,6 +181,8 @@ def op_rotate_attn_v_for_ViT(
 
 
 
+
+
 def untie_word_embeddings(model):
     if model.config.tie_word_embeddings:
         # Spinquant is not compatiable with tie_word_embeddings, clone lm_head from embed_tokens
@@ -196,7 +198,7 @@ def untie_word_embeddings(model):
 
         # copy from model.model.embed_tokens.weight
         model.lm_head.weight = nn.Parameter(new_weight)
-        new_weight = torch.empty_like(model.model.embed_tokens.weight)
+        new_weight = torch.empty_like(model.model.embed_tokens.weight)      # 应该是重复 有问题
         new_weight.copy_(model.model.embed_tokens.weight)
 
         # assign the new weight to lm_head
@@ -241,6 +243,13 @@ def rotate_model(model: Union[Qwen2ForCausalLM, Qwen2VLForConditionalGeneration]
         AutoOperation.rotate_input(attn.q_proj, R.T)
         AutoOperation.rotate_input(attn.k_proj, R.T)
         AutoOperation.rotate_input(attn.v_proj, R.T)
+
+        # print(attn.v_proj)
+        # print(attn.o_proj)
+
+        # AutoOperation.rotate_output(attn.v_proj, R)
+        # AutoOperation.rotate_input(attn.o_proj, R.T)
+
         # rotate output of W_o
         AutoOperation.rotate_output(attn.o_proj, R)
 
@@ -258,6 +267,9 @@ def rotate_model(model: Union[Qwen2ForCausalLM, Qwen2VLForConditionalGeneration]
     # reverse rotation for input of W_lm
     AutoOperation.rotate_input(model.lm_head, R.T)
     
+
+
+
 
 def center_output_of_each_layer_for_qwen2_vit(model: Qwen2VisionTransformerPretrainedModel):
     """
@@ -327,6 +339,7 @@ def apply_untie_word_embeddings(model: Union[Qwen2ForCausalLM, Qwen2VLForConditi
     Untie the word embeddings of the model.
     """
     print("Untie word embeddings")
+    print(type(model))
     untie_word_embeddings(model)
 
 from ..rotation_utils import fuse_layer_norms

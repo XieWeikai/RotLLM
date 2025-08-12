@@ -5,13 +5,13 @@ import importlib
 from pathlib import Path
 
 
-class NormLinearIterator(ABC):
+class NormLinearIterator(ABC): 
     """iterate over norm and its subsequent linear layers"""
     
     _registered_iterators: List["NormLinearIterator"] = []
     
     @abstractmethod
-    def __iter__(self) -> Iterator[Tuple[nn.Module, str, Iterable[nn.Linear]]]:
+    def __iter__(self) -> Iterator[Tuple[nn.Module, str, Iterable[nn.Linear]]]: # 返回一个迭代器
         """(parent_module, norm_layer_name, [linear_layers])"""
         pass
     
@@ -31,7 +31,7 @@ class NormLinearIterator(ABC):
     def from_model(cls, model: nn.Module) -> "NormLinearIterator":
         for iterator_cls in cls._registered_iterators:
             if iterator_cls.supports_model(model):
-                return iterator_cls(model)
+                return iterator_cls(model)      # _registered_iterators存的是类型，需要找到后再实例化对象，再返回
         
         raise ValueError(
             f"No suitable NormLinearIterator found for model type {type(model)}. "
@@ -43,7 +43,7 @@ from typing import Dict, Type, Callable, Any, Union
 import torch
 import torch.nn as nn
 
-class AutoOperationMeta(type):
+class AutoOperationMeta(type):      # 元类，用于创建类和控制类的行为的 类
     def __getattr__(cls, name):
         if name.startswith('_'):
             raise AttributeError(name)
@@ -64,7 +64,7 @@ class AutoOperation(metaclass=AutoOperationMeta):
     _operations: Dict[str, Dict[Type[nn.Module], Callable]] = {}
     
     @classmethod
-    def register_operation(cls, operation_name: str, module_type: Type[nn.Module]):
+    def register_operation(cls, operation_name: str, module_type: Type[nn.Module]):     # 注册一个操作函数，绑定到指定的 operation_name 和 module_type 上
         """
         Decorator to register an operation for a specific module type.
         
@@ -72,7 +72,7 @@ class AutoOperation(metaclass=AutoOperationMeta):
             operation_name: Name of the operation (e.g., 'rotate_input')
             module_type: The module type this operation applies to
         """
-        def decorator(func: Callable):
+        def decorator(func: Callable):      # 装饰器函数
             if operation_name not in cls._operations:
                 cls._operations[operation_name] = {}
             cls._operations[operation_name][module_type] = func
@@ -139,13 +139,18 @@ def op_rotate_linear_input(
     repeat_times = in_dim // R_dim
     assert in_dim % R_dim == 0, "input dim should be multiple of rotation matrix dim"
     # refer to patch merger of ViT of Qwen2VL
+    # this is just a trick for patch merger of Qwen2VL, where the input is a concatenation of multiple patches
+    # meaning the rotation matrix R is applied to each patch separately
+    # so we need to repeat the rotation matrix for each patch
+    # you can ignore this line of code if you are not using patch merger
     R = torch.block_diag(*([R] * repeat_times))  # sometimes we calculate (x1R, x2R, x3R) W + b, which is equivalent to (x1, x2, x3) diag(R, R, R) W + b
+    
     dtype = linear.weight.dtype
     R_device = R.device
     w_device = linear.weight.device
-    W_ = linear.weight.data.to(device=R_device, dtype=torch.float64)
+    W_ = linear.weight.data.to(device=R_device, dtype=torch.float64)        # 注意 PyTorch 里 linear.weight 存储的是权重矩阵的转置
     # note that the W_ in linear is transpose of W
-    linear.weight.data = (W_ @ (R.T.to(torch.float64))).to(device=w_device, dtype=dtype)
+    linear.weight.data = (W_ @ (R.T.to(torch.float64))).to(device=w_device, dtype=dtype)    
         
 
 @AutoOperation.register_operation("rotate_output", nn.Linear)
@@ -165,12 +170,20 @@ def op_rotate_linear_output(
     w_device = linear.weight.device
     W_ = linear.weight.data.to(device=R_device, dtype=torch.float64)
     # note that the W_ in linear is transpose of W
+    # now rotate the weight matrix
+    # your code here
+    # pass
+    # # linear.weight.data = (R.T @ W_).to(w_device, dtype=dtype)  # 保持原来 weight 的 shape 和类型
     linear.weight.data = (R.T.to(torch.float64) @ W_).to(device=w_device, dtype=dtype)
+    
     # rotate the bias
     if linear.bias is not None:
-        bias = linear.bias.data.to(device=R_device, dtype=torch.float64)
-        linear.bias.data = (bias @ R.to(torch.float64)).to(device=linear.bias.device, 
-                                                            dtype=linear.bias.dtype)
+        # your code here to rotate the bias
+        # pass
+        b = linear.bias.data.to(device=R_device, dtype=torch.float64)  # [out_dim]
+        # b = b @ R  # [out_dim] × [out_dim, out_dim] → [out_dim]
+        b = b @ R.to(torch.float64)
+        linear.bias.data = b.to(device=linear.bias.device, dtype=linear.bias.dtype)
     
 @AutoOperation.register_operation("rotate_output", nn.Embedding)
 def op_rotate_embedding(
@@ -178,15 +191,26 @@ def op_rotate_embedding(
     R: torch.Tensor):
     """
     Rotate each embedding vector by a rotation matrix R.
+    i.e. Emb(i) = E_i where E_i is the i-th embedding vector
+         after rotation, Emb(i) = E_i R
     """
     dtype = embedding.weight.dtype
     R_device = R.device
     w_device = embedding.weight.device
-    W_ = embedding.weight.data.to(device=R_device, dtype=torch.float64)
-    # note that the W_ in linear is transpose of W
-    embedding.weight.data = (W_ @ (R.to(torch.float64))).to(device=w_device, dtype=dtype)
+    # your code here to rotate the embedding weight matrix
+    # pass
+    # 检查维度一致性
+    assert R.shape[0] == R.shape[1], "R should be a square matrix"
+    assert R.shape[0] == embedding.embedding_dim, "R must match embedding dim"
 
-        
+    # 将权重转成 float64 进行精度更高的旋转操作
+    E = embedding.weight.data.to(device=R_device, dtype=torch.float64)  # [num_embeddings, embedding_dim]
+
+    # 每个词向量右乘 R，相当于 E_i * R
+    rotated = E @ R.to(torch.float64)  # [num_embeddings, embedding_dim]
+
+    # 转回原始的 dtype 和 device
+    embedding.weight.data = rotated.to(device=w_device, dtype=dtype)      
    
 """
 # denote centering the vector x as C(x) = x - mu
@@ -226,7 +250,7 @@ from typing import Callable, Dict, List, Any, Type
 from functools import wraps
 
 
-class RotateOperationRegistry:
+class RotateOperationRegistry:      # 管理旋转操作的注册表机制
     """A singleton registry for managing rotate operations across different modules.
 
     This registry maintains a mapping from module types to lists of rotate operations.
@@ -234,7 +258,7 @@ class RotateOperationRegistry:
     executed in registration order when the rotate interface is called.
     """
 
-    _instance = None
+    _instance = None    # 用于单例模式，仅保留一个实例
     _registry: Dict[Type, List[Callable[..., Any]]] = {}
 
     def __new__(cls):
@@ -270,12 +294,12 @@ class RotateOperationRegistry:
             @wraps(func)
             def wrapper(*args, **kwargs):
                 return func(*args, **kwargs)
-            return wrapper
+            return wrapper      # 返回一个和原函数功能一模一样的包装函数
 
         return decorator
 
     @classmethod
-    def get_operations(cls, module_type: Type) -> List[Callable[..., Any]]:
+    def get_operations(cls, module_type: Type) -> List[Callable[..., Any]]:     # 获取指定模块类型所注册的所有旋转操作函数
         """Retrieves all registered rotate operations for a module type.
 
         Args:
@@ -285,6 +309,10 @@ class RotateOperationRegistry:
             A list of registered rotate operations for the given module type.
             Returns empty list if no operations are registered.
         """
+        # for clss, funcs in cls._registry.items():
+        #     print(f"Registered class: {clss}")
+        #     for f in funcs:
+        #         print(f"  → Function: {f.__name__} from {f.__module__}")
         return cls._registry.get(module_type, [])
 
     @classmethod
@@ -314,7 +342,7 @@ class RotateOperationRegistry:
                 print(f"Failed to import {module_name}: {str(e)}")
 
     @classmethod
-    def auto_discover(cls, 
+    def auto_discover(cls,                                      # 自动地发现并加载注册模块
                     package_name: str = "registrations",
                     base_package: Optional[str] = None) -> None:
         """Automatically discover and load registration modules.
@@ -326,7 +354,7 @@ class RotateOperationRegistry:
         """
         if base_package is None:
             # Automatic base package detection
-            import inspect
+            import inspect 
             frame = inspect.currentframe()
             try:
                 caller_module = inspect.getmodule(frame.f_back)
@@ -360,8 +388,15 @@ def rotate_model(module: Any, *args, **kwargs) -> None:
     Raises:
         ValueError: If no rotate operations are registered for the module's type.
     """
-    module_type = type(module)
+    module_type = type(module)      # 获取模块的类型，比如 nn.Linear、nn.Conv2d 等
     operations = RotateOperationRegistry.get_operations(module_type)
+
+    # print(module_type)
+    # <class 'transformers.models.qwen2.modeling_qwen2.Qwen2ForCausalLM'>
+    # <class 'transformers.models.qwen2.modeling_qwen2.Qwen2ForCausalLM'>
+    # <class 'transformers_modules.Phi-4-mini-instruct.modeling_phi3.Phi3ForCausalLM'>
+    # <class 'transformers.models.phi3.modeling_phi3.Phi3ForCausalLM'>
+    # <class 'transformers.models.phi3.modeling_phi3.Phi3ForCausalLM'>
 
     if not operations:
         raise ValueError(f"No rotate operations registered for module type: {module_type.__name__}")
@@ -370,4 +405,58 @@ def rotate_model(module: Any, *args, **kwargs) -> None:
         operation(module, *args, **kwargs)
 
 
+if __name__ == "__main__":
+    from rotate.rotation_utils import get_orthogonal_matrix
+    
+    # test of AutoOperation
+    
+    # test rotate_input for nn.Linear
+    in_dim = 128
+    out_dim = 64
+    linear = nn.Linear(in_dim, out_dim)
+    # get a random orthogonal matrix
+    R = get_orthogonal_matrix(in_dim, mode="hadamard")
+    # random input
+    x = torch.randn(10, in_dim)     # 均值0，方差1的正态分布随机数
+    # rotate the input
+    x_rotated = (x.to(R.dtype) @ R).to(x.dtype)
+    y_ref = linear(x_rotated)
+    # apply the rotate_input operation
+    AutoOperation.rotate_input(linear, R)
+    # check if the output is the same
+    y = linear(x)
+    assert torch.allclose(y, y_ref, atol=1e-5), "rotate_input operation failed"
+    print("rotate_input operation for nn.Linear passed")
+    
+    # test rotate_output for nn.Linear
+    linear = nn.Linear(in_dim, out_dim)
+    # get a random orthogonal matrix
+    R = get_orthogonal_matrix(out_dim, mode="hadamard")
+    # random input
+    x = torch.randn(10, in_dim)
+    y = linear(x)
+    # rotate the output
+    y_rotated = (y.to(R.dtype) @ R).to(y.dtype)
+    # apply the rotate_output operation
+    AutoOperation.rotate_output(linear, R)
+    # check if the output is the same
+    y_new = linear(x)
+    assert torch.allclose(y_new, y_rotated, atol=1e-5), "rotate_output operation failed"
+    print("rotate_output operation for nn.Linear passed")
+    
+    # test rotate_output for nn.Embedding
+    embedding = nn.Embedding(100, in_dim)
+    # get a random orthogonal matrix
+    R = get_orthogonal_matrix(in_dim, mode="hadamard")
+    # random input
+    x = torch.randint(0, 100, (10,))
+    y = embedding(x)
+    # rotate the output
+    y_rotated = (y.to(R.dtype) @ R).to(y.dtype)
+    # apply the rotate_output operation
+    AutoOperation.rotate_output(embedding, R)
+    # check if the output is the same
+    y_new = embedding(x)
+    assert torch.allclose(y_new, y_rotated, atol=1e-5), "rotate_output operation for nn.Embedding failed"
+    print("rotate_output operation for nn.Embedding passed")
     

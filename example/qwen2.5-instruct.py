@@ -4,11 +4,14 @@
 
 import rotate
 from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
+import time
 
-model_path = "/path/to/Qwen2.5-1.5B-Instruct" # specify the path to the model
+model_path = "/root/autodl-tmp/RotLLM/LLM/Qwen2.5-1.5B-Instruct" # specify the path to the model
 
-device = "cuda:7" # specify the device to use
-dtype = "float32" # specify the data type
+device = "cuda:0" # specify the device to use
+# dtype = "float32" # specify the data type
+dtype = torch.float32
 
 def chat(tokenizer, model, prompt, max_new_tokens=1024):
     chats = [
@@ -28,19 +31,28 @@ def chat(tokenizer, model, prompt, max_new_tokens=1024):
     response = tokenizer.batch_decode(outputs, skip_special_tokens=False)[0]
     return response
 
+
+import torch
+from torch import nn
+from fakequant.linear import replace_linear_with_fakequant      # 将模型中的线性层替换成带量化的线性层，为后续的量化推理做准备
+
 if __name__ == "__main__":
     # load the model and tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_path)
-    model = AutoModelForCausalLM.from_pretrained(model_path, device_map="auto", torch_dtype=dtype)
+    model = AutoModelForCausalLM.from_pretrained(model_path, device_map=device, torch_dtype=dtype)
     model.eval()
 
     prompt = "write me a binary search in C"
+    start_time_1 = time.time()
     response = chat(tokenizer, model, prompt)
+    end_time_1 = time.time()
     print(response)
     
-    # model info
+    
+    
+    # model info    读取模型配置信息
     num_layers = model.config.num_hidden_layers
-    dim = model.config.hidden_size
+    dim = model.config.hidden_size      # 模型隐藏状态的维度大小
     qo_heads = model.config.num_attention_heads
     head_dim = dim // qo_heads
     
@@ -53,13 +65,30 @@ if __name__ == "__main__":
     
     # test the rotated model
     print("--------------------------------------")
+    start_time_2 = time.time()
     response = chat(tokenizer, model, prompt)
+    end_time_2 = time.time()
     print(response)
+    
+    # test the rotated model with fake quantization
+    # if you want to use fake quantization, uncomment the following lines
+    
+    replace_linear_with_fakequant(model, 8)
+    print(f"quantized model: {model}")
+    start_time_3 = time.time()
+    response = chat(tokenizer, model, prompt)
+    end_time_3 = time.time()
+    print("--------------------------------------")
+    print(f"after quantization:\n\n {response}")
     
     
     # now you can save the rotated model
     
-    model.save_pretrained(model_path + "_rotated")
-    tokenizer.save_pretrained(model_path + "_rotated")
-    print(f"Rotated model saved to {model_path}_rotated")
+    # model.save_pretrained(model_path + "_rotated")
+    # tokenizer.save_pretrained(model_path + "_rotated")
+    # print(f"Rotated model saved to {model_path}_rotated")
+
+    print(f"Time for first generation (original model): {end_time_1 - start_time_1:.3f} seconds\n")
+    print(f"Time for second generation (rotated model): {end_time_2 - start_time_2:.3f} seconds\n") 
+    print(f"Time for third generation (rotated + quantized model): {end_time_3 - start_time_3:.3f} seconds\n")
     
