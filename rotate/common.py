@@ -4,7 +4,7 @@ import torch.nn as nn
 import importlib
 from pathlib import Path
 
-
+ 
 class NormLinearIterator(ABC): 
     """iterate over norm and its subsequent linear layers"""
     
@@ -25,7 +25,7 @@ class NormLinearIterator(ABC):
     def register_iterator(cls, iter_cls) -> "NormLinearIterator":
         """register an iterator class"""
         cls._registered_iterators.append(iter_cls)
-        return iter_cls
+        return iter_cls         # 注册方法后的 return 都是有必要的
     
     @classmethod
     def from_model(cls, model: nn.Module) -> "NormLinearIterator":
@@ -119,6 +119,7 @@ class AutoOperation(metaclass=AutoOperationMeta):
         if name.startswith('_'):
             raise AttributeError(name)
         
+        # 可以直接用 AutoOperation.rotate_input(...) 的方式调用注册过的操作，而不必显式写调用 apply_operation("rotate_input", ...) 的语句
         def method(module: nn.Module, *args, **kwargs):
             return cls.apply_operation(name, module, *args, **kwargs)
         

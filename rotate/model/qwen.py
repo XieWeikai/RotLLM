@@ -14,7 +14,7 @@ try:
     HAS_QWEN2_VL = True
 except ImportError:
     HAS_QWEN2_VL = False
-    class Qwen2VLForConditionalGeneration:
+    class Qwen2VLForConditionalGeneration: 
         pass
     class Qwen2VisionTransformerPretrainedModel:
         pass
