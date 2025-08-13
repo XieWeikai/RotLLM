@@ -3,17 +3,19 @@ from torch import nn
 import dataclasses
 from typing import Optional, Tuple
 
+from fakequant.function import FakeQuantizeFunction
+
 @dataclasses.dataclass
 class QuantizeConfig:
     """
-    Configuration for quantization.
+    Configuration for quantization. 
     """
     is_symmetric: bool = True
     num_bits: int = 8
     granularity: str = 'per_tensor' # 'per_tensor' or 'per_channel'
     
     
-
+ 
 def compute_n_bits_min_max(config: QuantizeConfig) -> Tuple[int, int]:
     """
     Compute min and max values for quantization.
@@ -35,7 +37,7 @@ def compute_qparams(config: QuantizeConfig, input: torch.Tensor)->Tuple[torch.Te
     min_val, max_val = compute_n_bits_min_max(config)
     
     if config.granularity == 'per_tensor':
-        input = input.flatten()
+        input = input.flatten() 
     
     min_input = input.min(dim=-1, keepdim=True)
     max_input = input.max(dim=-1, keepdim=True)
