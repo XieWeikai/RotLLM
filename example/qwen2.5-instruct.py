@@ -5,6 +5,7 @@
 import rotate
 from fakequant.linear import replace_linear_with_fakequant
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from fakequant.cache import FakeQuantDynamicCache
 
 model_path = "/data/share/Qwen2.5-1.5B-Instruct" # specify the path to the model
 
@@ -12,7 +13,7 @@ device = "cuda:0" # specify the device to use
 dtype = "float32" # specify the data type
 MLP_ONLINE_ROTATION = True # whether to use online rotation for MLPs
 
-def chat(tokenizer, model, prompt, max_new_tokens=1024):
+def chat(tokenizer, model, prompt, max_new_tokens=1024, kv_quantization=False):
     chats = [
         {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": prompt}
@@ -26,6 +27,7 @@ def chat(tokenizer, model, prompt, max_new_tokens=1024):
         temperature=None,
         top_p=None,
         top_k=None,
+        past_key_values=FakeQuantDynamicCache() if kv_quantization else None
     )
     response = tokenizer.batch_decode(outputs, skip_special_tokens=False)[0]
     return response
@@ -76,7 +78,7 @@ if __name__ == "__main__":
     
     # test the rotated model
     print("--------------------------------------")
-    response = chat(tokenizer, model, prompt)
+    response = chat(tokenizer, model, prompt, kv_quantization=True)
     print(response)
     
     
