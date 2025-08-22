@@ -3,12 +3,14 @@
 # This file shows how to rotate Qwen models using the package rotate.
 
 import rotate
+from fakequant.linear import replace_linear_with_fakequant
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-model_path = "/path/to/Qwen2.5-1.5B-Instruct" # specify the path to the model
+model_path = "/data/share/Qwen2.5-1.5B-Instruct" # specify the path to the model
 
-device = "cuda:7" # specify the device to use
+device = "cuda:0" # specify the device to use
 dtype = "float32" # specify the data type
+MLP_ONLINE_ROTATION = True # whether to use online rotation for MLPs
 
 def chat(tokenizer, model, prompt, max_new_tokens=1024):
     chats = [
@@ -31,7 +33,7 @@ def chat(tokenizer, model, prompt, max_new_tokens=1024):
 if __name__ == "__main__":
     # load the model and tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_path)
-    model = AutoModelForCausalLM.from_pretrained(model_path, device_map="auto", torch_dtype=dtype)
+    model = AutoModelForCausalLM.from_pretrained(model_path, device_map=device, torch_dtype=dtype)
     model.eval()
 
     prompt = "write me a binary search in C"
@@ -43,6 +45,7 @@ if __name__ == "__main__":
     dim = model.config.hidden_size
     qo_heads = model.config.num_attention_heads
     head_dim = dim // qo_heads
+    intermediate_size = model.config.intermediate_size
     
     # get randome hadamard rotation matrix
     R = rotate.get_orthogonal_matrix(dim, mode="hadamard", device=device)
@@ -51,15 +54,37 @@ if __name__ == "__main__":
     # currently only supports Qwen2ForCausalLM and Qwen2VLForConditionalGeneration
     rotate.rotate_model(model, R, R_v)
     
+    if MLP_ONLINE_ROTATION:
+        from rotate.online_rotation_wrapper import replace_mlp
+        def hadamard_generator(module_name):
+            # you can customize the rotation matrices for different MLP modules here
+            # for example, you can use different modes or different sizes
+            hadamard_up = None
+            hadamard_gate = None
+            hadamard_down = rotate.get_orthogonal_matrix(intermediate_size, mode='hadamard', device=device)
+            return hadamard_up, hadamard_gate, hadamard_down
+        
+        # replace MLP modules with online rotation wrappers
+        print("Replacing MLP modules with online rotation wrappers...")
+        replace_mlp(model, hadamard_generator)
+        print("Replacement done.")
+    
+    # quantize the model using fakequant
+    print("Quantizing the model using fakequant...")
+    model = replace_linear_with_fakequant(model, num_bits=8)
+    print("Quantization done.")
+    
     # test the rotated model
     print("--------------------------------------")
     response = chat(tokenizer, model, prompt)
     print(response)
     
     
+    
+    
     # now you can save the rotated model
     
-    model.save_pretrained(model_path + "_rotated")
-    tokenizer.save_pretrained(model_path + "_rotated")
-    print(f"Rotated model saved to {model_path}_rotated")
+    # model.save_pretrained(model_path + "_rotated")
+    # tokenizer.save_pretrained(model_path + "_rotated")
+    # print(f"Rotated model saved to {model_path}_rotated")
     
