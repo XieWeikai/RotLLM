@@ -1,12 +1,12 @@
 import torch
 from torch import nn
 from typing import Union
-from transformers import Phi3ForCausalLM  # 请确保 transformers 支持该模型
+from transformers import Phi3ForCausalLM  
 
 from ..common import RotateOperationRegistry, AutoOperation, NormLinearIterator
 from ..rotation_utils import fuse_layer_norms
 
-# ---------------------- NormLinearIterator ----------------------
+
 @NormLinearIterator.register_iterator
 class Phi3NormLinearIterator(NormLinearIterator):
     def __init__(self, model: Phi3ForCausalLM):
@@ -23,7 +23,7 @@ class Phi3NormLinearIterator(NormLinearIterator):
     def supports_model(cls, model: nn.Module) -> bool:
         return isinstance(model, Phi3ForCausalLM)
 
-# ---------------------- 旋转主函数 ----------------------
+
 @torch.inference_mode()
 def rotate_model(model: Phi3ForCausalLM, R: torch.Tensor, R_v: list[torch.Tensor] = None):
     config = model.config
@@ -33,8 +33,6 @@ def rotate_model(model: Phi3ForCausalLM, R: torch.Tensor, R_v: list[torch.Tensor
     num_layers = config.num_hidden_layers
 
     assert R.shape == (dim, dim)
-
-    # R = R.T
 
     if isinstance(R_v, torch.Tensor):
         assert R_v.shape == (head_dim, head_dim)
@@ -49,12 +47,6 @@ def rotate_model(model: Phi3ForCausalLM, R: torch.Tensor, R_v: list[torch.Tensor
         attn = layer.self_attn
         AutoOperation.rotate_input(attn.qkv_proj, R.T)
 
-        # print(attn.qkv_proj)
-        # print(attn.o_proj)
-
-        # AutoOperation.rotate_output(attn.qkv_proj, R)
-        # AutoOperation.rotate_input(attn.o_proj, R.T)
-
         AutoOperation.rotate_output(attn.o_proj, R)
 
         if R_v is not None:
@@ -66,7 +58,7 @@ def rotate_model(model: Phi3ForCausalLM, R: torch.Tensor, R_v: list[torch.Tensor
 
     AutoOperation.rotate_input(model.lm_head, R.T)
 
-# ---------------------- 注册操作 ----------------------
+
 @RotateOperationRegistry.register(Phi3ForCausalLM)
 def apply_untie_word_embeddings(model: Phi3ForCausalLM, *args, **kwargs):
     if model.config.tie_word_embeddings:
@@ -86,7 +78,6 @@ def apply_rotate_model(model: Phi3ForCausalLM, *args, **kwargs):
     print("Rotate Phi3 model")
     rotate_model(model, *args, **kwargs)
 
-# ---------------------- attention 中的 v_proj 旋转处理 ----------------------
 try:
     from transformers.models.phi3.modeling_phi3 import Phi3Attention
 

@@ -34,7 +34,7 @@ def chat(tokenizer, model, prompt, max_new_tokens=1024):
 
 import torch
 from torch import nn
-from fakequant.linear import replace_linear_with_fakequant      # 将模型中的线性层替换成带量化的线性层，为后续的量化推理做准备
+from fakequant.linear import replace_linear_with_fakequant     
 
 if __name__ == "__main__":
     # load the model and tokenizer
@@ -50,9 +50,9 @@ if __name__ == "__main__":
     
     
     
-    # model info    读取模型配置信息
+    # model info    
     num_layers = model.config.num_hidden_layers
-    dim = model.config.hidden_size      # 模型隐藏状态的维度大小
+    dim = model.config.hidden_size      
     qo_heads = model.config.num_attention_heads
     head_dim = dim // qo_heads
     
@@ -80,13 +80,6 @@ if __name__ == "__main__":
     end_time_3 = time.time()
     print("--------------------------------------")
     print(f"after quantization:\n\n {response}")
-    
-    
-    # now you can save the rotated model
-    
-    # model.save_pretrained(model_path + "_rotated")
-    # tokenizer.save_pretrained(model_path + "_rotated")
-    # print(f"Rotated model saved to {model_path}_rotated")
 
     print(f"Time for first generation (original model): {end_time_1 - start_time_1:.3f} seconds\n")
     print(f"Time for second generation (rotated model): {end_time_2 - start_time_2:.3f} seconds\n") 

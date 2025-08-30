@@ -274,9 +274,9 @@ def evaluate_lambada_acc(model, tokenizer, dataset, device='cuda', max_length=51
 
 
 def main():
-    MODEL_PATH_ORIG = "/data/share/Qwen2.5-1.5B-Instruct"
+    # MODEL_PATH_ORIG = "/data/share/Qwen2.5-1.5B-Instruct"
     # MODEL_PATH_ORIG = "/data/zjh/LLM/phi-3-mini-4k-instruct"
-    # MODEL_PATH_ORIG = "/data/share/Llama-3.2-3B-Instruct"
+    MODEL_PATH_ORIG = "/data/share/Llama-3.2-3B-Instruct"
 
     device = "cuda:2"
     dtype = torch.float32
@@ -332,23 +332,25 @@ def main():
 
     results = {}
 
-    with open("test_results_phi_fp16.txt", "w", encoding="utf-8") as f:
+    result_file_path = "/home/zjh/project1_LLM_Rotation_QAT/RotLLM/example/eval/test_results_llama_fp16.txt"
+
+    with open(result_file_path, "w", encoding="utf-8") as f:
         f.write("=== Test Results ===\n")
 
     for task_name, (eval_fn, dataset) in eval_tasks.items():
         print(f"Running {task_name} evaluation...")
         try:
-            dataset = dataset.select(range(5))  # ✅ 只测试前 10 条
+            # dataset = dataset.select(range(5))  # ✅ 只测试前 10 条
             result = eval_fn(model_orig, tokenizer, dataset, device=device)
             results[task_name] = result
             print(f"{task_name} result: {result}")
  
-            with open("test_results_phi_fp16.txt", "a", encoding="utf-8") as f:
+            with open(result_file_path, "a", encoding="utf-8") as f:
                 f.write(f"{task_name}: {result}\n")
         except Exception as e:
             err_trace = traceback.format_exc()
             print(f"Error running {task_name}: {e}")
-            with open("test_results_phi_fp16.txt", "a", encoding="utf-8") as f:
+            with open(result_file_path, "a", encoding="utf-8") as f:
                 f.write(f"{task_name} ERROR: {err_trace}\n")
 
     model_orig.cpu()

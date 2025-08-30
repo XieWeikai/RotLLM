@@ -23,7 +23,7 @@ def compute_n_bits_min_max(config: QuantizeConfig) -> Tuple[int, int]:
     min_val = -2 ** (config.num_bits - 1)
     max_val = 2 ** (config.num_bits - 1) - 1
     return min_val, max_val
-
+ 
 
 def compute_qparams(config: QuantizeConfig, input: torch.Tensor)->Tuple[torch.Tensor, Optional[torch.Tensor]]:
     """
@@ -61,7 +61,7 @@ class FakeQuantizer(nn.Module):
     def __init__(self, config: QuantizeConfig):
         super().__init__()
         self.config = config
-        
+         
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         """
         Quantize input tensor using computed quantization parameters.

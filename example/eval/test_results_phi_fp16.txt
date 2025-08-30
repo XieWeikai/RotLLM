@@ -1,8 +1,0 @@
-=== Test Results ===
-PPL: 14.826228141784668
-PIQA: 0.4
-WinoGrande: 0.6
-HellaSwag: 0.2
-ARC-e: 0.6
-ARC-c: 0.6
-LAMBADA: 0.4

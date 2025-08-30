@@ -1,5 +1,7 @@
 .ipynb_checkpoints/
 bash/
+example/eval/
+example/calculate_ppl.py
 img/
 __pycache__/
 RotLLM.egg-info/

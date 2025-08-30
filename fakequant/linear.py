@@ -15,7 +15,7 @@ class FakeQuantLinear(nn.Module):
         device = linear.weight.device
 
         # Create FakeQuantLinear and move to same dtype & device
-        fq_linear = cls(            # 调用构造函数创建一个 FakeQuantLinear 实例
+        fq_linear = cls(            
             in_features=linear.in_features,
             out_features=linear.out_features,
             bias=linear.bias is not None,
@@ -35,9 +35,6 @@ class FakeQuantLinear(nn.Module):
 
         dtype = x.dtype
         device = x.device
-        # print("----")
-        # print(device)
-        # print("----")
         
         qmin = -(2 ** (num_bits - 1)) if symmetric else 0 # FIXME: calculate qmin based on num_bits
         qmax = (2 ** (num_bits - 1)) - 1 if symmetric else (2 ** num_bits) - 1 # FIXME: calculate qmax based on num_bits
@@ -50,16 +47,10 @@ class FakeQuantLinear(nn.Module):
             x_min = x.min()
             x_max = x.max()
             if symmetric:
-                # TODO: calculate scale and zero_point for symmetric quantization
-                # scale = None
-                # zero_point = None
                 max_val = torch.max(torch.abs(x_min), torch.abs(x_max)).to(device=device)
                 scale = (max_val / qmax).to(dtype=dtype, device=device)
                 zero_point = torch.tensor(0, dtype=torch.int32, device=device)
             else:
-                # TODO: calculate scale and zero_point for asymmetric quantization
-                # scale = None
-                # zero_point = None
                 scale = ((x_max - x_min) / (qmax - qmin)).to(dtype=dtype, device=device)
                 zero_point = qmin - x_min / scale
                 zero_point = zero_point.round().to(dtype=torch.int32, device=device)
@@ -68,9 +59,6 @@ class FakeQuantLinear(nn.Module):
             x_min = x.amin(dim=-1, keepdim=True)
             x_max = x.amax(dim=-1, keepdim=True)
             
-            # TODO: quantize along the specified axis
-            # scale = None 
-            # zero_point = None
             if symmetric:
                 max_val = torch.max(torch.abs(x_min), torch.abs(x_max)).to(device=device)
                 scale = (max_val / qmax).to(dtype=dtype, device=device)
@@ -95,14 +83,12 @@ class FakeQuantLinear(nn.Module):
         b_q = self.quantize_tensor(self.linear.bias, num_bits=self.num_bits, symmetric=False, granularity='per_tensor') if self.linear.bias is not None else None
 
         y = F.linear(x_q, w_q, b_q)
-        # y_quant = self.quantize_tensor(y, num_bits=self.num_bits, symmetric=False, granularity="per_tensor")
-        # return y_quant
         return y
     
     def extra_repr(self):
         return f"in_features={self.linear.in_features}, out_features={self.linear.out_features}, bias={self.linear.bias is not None}, num_bits={self.num_bits}"
 
-
+ 
 def replace_linear_with_fakequant(model: nn.Module, num_bits=8, filter_fn=None):
     """
     Replace all nn.Linear modules in a model with FakeQuantLinear.

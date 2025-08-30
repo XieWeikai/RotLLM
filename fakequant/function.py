@@ -155,3 +155,4 @@ class LearnableFakeQuantizeFunction(torch.autograd.Function):
             grad_z = grad_z.sum(dim=tuple(range(grad_z.dim()-zero_point.dim())))
         
         return grad_input, grad_scale, grad_z, None, None
+ 

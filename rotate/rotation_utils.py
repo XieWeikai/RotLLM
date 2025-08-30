@@ -5,7 +5,7 @@ from torch import nn
 from rotate.common import NormLinearIterator
 from .hadamard_utils import random_hadamard_matrix
 
-def random_orthogonal_matrix(size, device):         # 随机生成一个正交矩阵（float64）
+def random_orthogonal_matrix(size, device):        
     """
     Generate a random orthogonal matrix of the specified size.
     First, we generate a random matrix with entries from a standard distribution.
@@ -88,7 +88,7 @@ def fuse_layer_norms(model: nn.Module, replace_ln: bool = False, verbose=False) 
 
     for father, norm_name, linears in it:
         # fuse the linear operations in Layernorm into the adjacent linear blocks.
-        norm = getattr(father, norm_name)       # 通过 getattr 从 father 模块中获取名为 norm_name 的 LayerNorm 层
+        norm = getattr(father, norm_name)      
         if verbose:
             print(f"Fusing {norm_name}")
             print(f"  {norm}")
@@ -103,10 +103,10 @@ def fuse_layer_norms(model: nn.Module, replace_ln: bool = False, verbose=False) 
                 norm.bias.data = torch.zeros_like(b_norm)
         else:
             eps = 1e-6
-            if hasattr(norm, 'variance_epsilon'):   # 获取原归一化层的 eps（容差）值
+            if hasattr(norm, 'variance_epsilon'):   
                 eps = norm.variance_epsilon
             if hasattr(norm, 'eps'):
                 eps = norm.eps
             # replace the layernorm with RMSNorm
             new_norm = RMSNorm(eps=eps)
-            setattr(father, norm_name, new_norm)    # 将原归一化层替换为 RMSNorm
+            setattr(father, norm_name, new_norm)   

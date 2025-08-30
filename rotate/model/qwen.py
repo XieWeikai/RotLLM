@@ -32,7 +32,7 @@ except ImportError:
     
    
 @NormLinearIterator.register_iterator
-class Qwen2NormLinearIterator(NormLinearIterator):      # 用于遍历 Qwen2 模型中 Norm + Linear 模块组合的迭代器
+class Qwen2NormLinearIterator(NormLinearIterator):     
     def __init__(self, model: Qwen2ForCausalLM):
         super().__init__()
         self.model = model
@@ -198,7 +198,7 @@ def untie_word_embeddings(model):
 
         # copy from model.model.embed_tokens.weight
         model.lm_head.weight = nn.Parameter(new_weight)
-        new_weight = torch.empty_like(model.model.embed_tokens.weight)      # 应该是重复 有问题
+        new_weight = torch.empty_like(model.model.embed_tokens.weight)    
         new_weight.copy_(model.model.embed_tokens.weight)
 
         # assign the new weight to lm_head
@@ -243,12 +243,6 @@ def rotate_model(model: Union[Qwen2ForCausalLM, Qwen2VLForConditionalGeneration]
         AutoOperation.rotate_input(attn.q_proj, R.T)
         AutoOperation.rotate_input(attn.k_proj, R.T)
         AutoOperation.rotate_input(attn.v_proj, R.T)
-
-        # print(attn.v_proj)
-        # print(attn.o_proj)
-
-        # AutoOperation.rotate_output(attn.v_proj, R)
-        # AutoOperation.rotate_input(attn.o_proj, R.T)
 
         # rotate output of W_o
         AutoOperation.rotate_output(attn.o_proj, R)
