@@ -5,6 +5,7 @@
 import rotate
 from fakequant.linear import replace_linear_with_fakequant
 from transformers import AutoModelForCausalLM, AutoTokenizer
+
 from fakequant.cache import FakeQuantDynamicCache
 
 model_path = "/data/share/Qwen2.5-1.5B-Instruct" # specify the path to the model
@@ -32,6 +33,11 @@ def chat(tokenizer, model, prompt, max_new_tokens=1024, kv_quantization=False):
     response = tokenizer.batch_decode(outputs, skip_special_tokens=False)[0]
     return response
 
+
+import torch
+from torch import nn
+from fakequant.linear import replace_linear_with_fakequant     
+
 if __name__ == "__main__":
     # load the model and tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_path)
@@ -39,12 +45,16 @@ if __name__ == "__main__":
     model.eval()
 
     prompt = "write me a binary search in C"
+    start_time_1 = time.time()
     response = chat(tokenizer, model, prompt)
+    end_time_1 = time.time()
     print(response)
     
-    # model info
+    
+    
+    # model info    
     num_layers = model.config.num_hidden_layers
-    dim = model.config.hidden_size
+    dim = model.config.hidden_size      
     qo_heads = model.config.num_attention_heads
     head_dim = dim // qo_heads
     intermediate_size = model.config.intermediate_size
@@ -78,10 +88,14 @@ if __name__ == "__main__":
     
     # test the rotated model
     print("--------------------------------------")
+
     response = chat(tokenizer, model, prompt, kv_quantization=True)
+
     print(response)
     
-    
+    # test the rotated model with fake quantization
+    # if you want to use fake quantization, uncomment the following lines
+   
     
     
     # now you can save the rotated model

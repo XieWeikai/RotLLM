@@ -11,7 +11,7 @@ from ..common import NormLinearIterator
 @NormLinearIterator.register_iterator
 class LlamaNormLinearIterator(NormLinearIterator):
     def __init__(self, model: LlamaForCausalLM):
-        super().__init__()
+        super().__init__()   
         self.model = model
         
     def __iter__(self):
@@ -78,11 +78,11 @@ def untie_word_embeddings(model):
 
         # copy from model.model.embed_tokens.weight
         model.lm_head.weight = nn.Parameter(new_weight)
-        new_weight = torch.empty_like(model.model.embed_tokens.weight)
-        new_weight.copy_(model.model.embed_tokens.weight)
+        # new_weight = torch.empty_like(model.model.embed_tokens.weight)
+        # new_weight.copy_(model.model.embed_tokens.weight)
 
         # assign the new weight to lm_head
-        model.lm_head.weight = nn.Parameter(new_weight)
+        # model.lm_head.weight = nn.Parameter(new_weight)
 
         # ensure that the ptr of weight of lm_head is not the same as ptr of the weight of embed_tokens
         assert model.model.embed_tokens.weight.data_ptr() != model.lm_head.weight.data_ptr()

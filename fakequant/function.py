@@ -7,7 +7,7 @@ class FakeQuantizeFunction(torch.autograd.Function):
     Custom autograd function for fake quantization with STE (Straight-Through Estimator).
     Performs quantization in forward pass and uses STE for backward propagation.
     """
-    
+     
     @staticmethod
     def forward(ctx, input, scales, zero_points, quant_min, quant_max):
         """
@@ -155,3 +155,4 @@ class LearnableFakeQuantizeFunction(torch.autograd.Function):
             grad_z = grad_z.sum(dim=tuple(range(grad_z.dim()-zero_point.dim())))
         
         return grad_input, grad_scale, grad_z, None, None
+ 

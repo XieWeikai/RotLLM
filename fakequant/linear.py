@@ -75,6 +75,7 @@ class FakeQuantLinear(nn.Module):
         device = linear.weight.device
 
         # Create FakeQuantLinear and move to same dtype & device
+
         fq_linear = cls(
             in_features=linear.in_features,
             out_features=linear.out_features,
@@ -88,6 +89,7 @@ class FakeQuantLinear(nn.Module):
             fq_linear.linear.bias.data.copy_(linear.bias.data)
 
         return fq_linear
+
 
     def forward(self, x):
         # Activation: per-tensor, asymmetric (A8)
@@ -122,7 +124,6 @@ def replace_linear_with_fakequant(model: nn.Module, num_bits=8, filter_fn=None):
     Returns:
         nn.Module: The model with selected Linear layers replaced by FakeQuantLinear.
     """
-
     for name, module in model.named_children():
         if isinstance(module, nn.Linear):
             if filter_fn is None or filter_fn(name, module):
