@@ -6,4 +6,4 @@ img/
 __pycache__/
 RotLLM.egg-info/
 *test*.py
-*del*.py
+*delete*.py
