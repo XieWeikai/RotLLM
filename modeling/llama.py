@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from typing import Tuple, Optional, Callable
+import copy
 
 
 from transformers.models.llama.modeling_llama import (
@@ -43,7 +44,7 @@ class LlamaMLPWithR4(nn.Module):
 class LlamaAttentionWithR3(nn.Module):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
 
-    def __init__(self, module: LlamaAttention, R3, k_quant_config: QuantizeConfig, v_quant_config: QuantizeConfig):
+    def __init__(self, module: LlamaAttention, R3, k_quant_config: QuantizeConfig, v_quant_config: QuantizeConfig, to_quant: bool = True):
         super().__init__()
         self.config = module.config
         self.layer_idx = module.layer_idx
@@ -57,12 +58,17 @@ class LlamaAttentionWithR3(nn.Module):
         self.v_proj = module.v_proj
         self.o_proj = module.o_proj
 
+        self.k_quant_config = copy.deepcopy(k_quant_config)
+        self.v_quant_config = copy.deepcopy(v_quant_config)
+
         # Optional Rotation Matrix
         self.R3 = R3
-        self.k_quant_config = k_quant_config
-        self.v_quant_config = v_quant_config
-        self.kQuant = None
-        self.vQuant = None
+        if to_quant:
+            self.kQuant = FakeQuantizer(self.k_quant_config)
+            self.vQuant = FakeQuantizer(self.v_quant_config)
+        else:
+            self.kQuant = None
+            self.vQuant = None
 
     def forward(
         self,
@@ -95,15 +101,11 @@ class LlamaAttentionWithR3(nn.Module):
         
 
         # Key:
-        if self.kQuant is None:   # First time setting the quantizer
-            self.kQuant = FakeQuantizer(self.k_quant_config, key_states)
-        else:
+        if self.kQuant is not None:
             key_states = self.kQuant(key_states)
 
         # Value:
-        if self.vQuant is None:   # First time setting the quantizer
-            self.vQuant = FakeQuantizer(self.v_quant_config, value_states)
-        else:
+        if self.vQuant is not None:
             value_states = self.vQuant(value_states)
 
 
@@ -145,7 +147,7 @@ def get_parent_module(model, module_name):
         parent = getattr(parent, p)
     return parent, parts[-1]
 
-def apply_R3R4_change_llama_model(model, R3_list, R4_list, k_Quant_config: QuantizeConfig, v_Quant_config: QuantizeConfig):
+def apply_R3R4_change_model(model, R3_list, R4_list, k_Quant_config: QuantizeConfig, v_Quant_config: QuantizeConfig, to_quant: bool = True):
     """
         Replace LlamaMLP with LlamaMLPWithR4
         Replace LlamaAttention with LlamaAttentionWithR3
@@ -165,5 +167,18 @@ def apply_R3R4_change_llama_model(model, R3_list, R4_list, k_Quant_config: Quant
 
             # Take out the R3 of the corresponding layer from the list.
             R3_layer = R3_list[attn_layer_idx]
-            setattr(parent, attr_name, LlamaAttentionWithR3(module, R3_layer, k_Quant_config, v_Quant_config))
+            setattr(parent, attr_name, LlamaAttentionWithR3(module, R3_layer, k_Quant_config, v_Quant_config, to_quant))
             attn_layer_idx += 1
+
+
+def value_kv_quantizers(model: nn.Module):
+    """
+    Traverse all LlamaAttentionWithR3 layers in the model, 
+    and use the saved k_Quant_config and v_Quant_config 
+    to assign values to kQuant and vQuant.
+    """
+    for module in model.modules():
+        if isinstance(module, LlamaAttentionWithR3):
+            assert module.kQuant is None and module.vQuant is None, "Reassign kQuant or vQuant"
+            module.kQuant = FakeQuantizer(module.k_quant_config)
+            module.vQuant = FakeQuantizer(module.v_quant_config)

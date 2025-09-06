@@ -4,6 +4,18 @@ import torch.nn as nn
 from typing import Tuple, Optional
 
 
+from train.config import WeightQuantizeConfig
+
+def quant_dequant(input, scale, zero_point, min_val, max_val):
+    if zero_point is not None:
+        quantized = torch.clamp(torch.round(input / scale) + zero_point, min_val, max_val)
+        dequantized = (quantized - zero_point) * scale
+    else:
+        quantized = torch.clamp(torch.round(input / scale), min_val, max_val)
+        dequantized = quantized * scale 
+    return dequantized, quantized, scale  
+
+
 def compute_n_bits_min_max(config) -> Tuple[int, int]:
     """
     Compute min and max values for quantization.
@@ -34,7 +46,37 @@ def find_params_per_groupwise(input: torch.Tensor, config, min_val, max_val)->Tu
         zero_point = None
     else:
         scale = (xmax - xmin) / (max_val - min_val)
-        zero_point = torch.round(min_val - xmin / scale)     
+        zero_point = torch.round(min_val - xmin / scale)   
+
+    if isinstance(config, WeightQuantizeConfig) and config.mse:
+        best_error = torch.full([reshaped_input.shape[0], reshaped_input.shape[1], reshaped_input.shape[2]], float("inf"), device=reshaped_input.device, dtype=reshaped_input.dtype)
+        best_scale = scale.clone()
+        best_zero = zero_point.clone() if zero_point is not None else None
+
+        for i in range(int(config.grid * config.maxshrink)):
+            p = 1 - i / config.grid
+            xmin1 = xmin * p
+            xmax1 = xmax * p
+
+            if config.is_symmetric:
+                scale1 = xmax1 / max_val
+                zero_point1 = None
+                q, _, _ = quant_dequant(reshaped_input, scale1, zero_point1, min_val, max_val) 
+            else:
+                scale1 = (xmax1 - xmin1) / (max_val - min_val)
+                zero_point1 = torch.round(min_val - xmin1 / scale1)
+                q, _, _ = quant_dequant(reshaped_input, scale1, zero_point1, min_val, max_val)  
+
+            err = ((q - reshaped_input).abs() ** config.norm).sum(dim=3)
+            mask = err < best_error
+            if torch.any(mask):
+                best_error[mask] = err[mask]
+                best_scale[mask] = scale1[mask]
+                if zero_point1 is not None:
+                    best_zero[mask] = zero_point1[mask]
+
+        scale = best_scale
+        zero_point = best_zero  
 
     scale = scale.expand(-1, -1, -1, config.groupsize).reshape(init_shape)
     zero_point = zero_point.expand(-1, -1, -1, config.groupsize).reshape(init_shape) if zero_point is not None else None
@@ -62,13 +104,48 @@ def compute_qparams_dynamic(input: torch.Tensor, config, min_val, max_val)->Tupl
 
     if config.is_symmetric:
         xmax = torch.maximum(torch.abs(xmin), torch.abs(xmax))
-        scale = (xmax / max_val).expand(-1, reshaped_input.shape[-1]).reshape(init_shape)
+        scale = xmax / max_val
         zero_point = None
     else:
         scale = (xmax - xmin) / (max_val - min_val)
         zero_point = torch.round(min_val - xmin / scale)
-        scale = scale.expand(-1, reshaped_input.shape[-1]).reshape(init_shape)
-        zero_point = zero_point.expand(-1, reshaped_input.shape[-1]).reshape(init_shape)
+
+    if isinstance(config, WeightQuantizeConfig) and config.mse:
+        best_error = torch.full([reshaped_input.shape[0]], float("inf"), device=reshaped_input.device, dtype=reshaped_input.dtype)
+        best_scale = scale.clone()
+        best_zero = zero_point.clone() if zero_point is not None else None
+
+        for i in range(int(config.grid * config.maxshrink)):
+            p = 1 - i / config.grid
+            xmin1 = xmin * p
+            xmax1 = xmax * p
+
+            if config.is_symmetric:
+                scale1 = xmax1 / max_val
+                zero_point1 = None
+                q, _, _ = quant_dequant(reshaped_input, scale1, zero_point1, min_val, max_val) 
+            else:
+                scale1 = (xmax1 - xmin1) / (max_val - min_val)
+                zero_point1 = torch.round(min_val - xmin1 / scale1)
+                q, _, _ = quant_dequant(reshaped_input, scale1, zero_point1, min_val, max_val)  
+
+            err = ((q - reshaped_input).abs() ** config.norm).sum(dim=1)
+            mask = err < best_error
+            if torch.any(mask):
+                best_error[mask] = err[mask]
+                best_scale[mask] = scale1[mask]
+                if zero_point1 is not None:
+                    best_zero[mask] = zero_point1[mask]
+
+        scale = best_scale
+        zero_point = best_zero
+
+    scale = scale.expand(-1, reshaped_input.shape[-1]).reshape(init_shape)
+    zero_point = zero_point.expand(-1, reshaped_input.shape[-1]).reshape(init_shape) if zero_point is not None else None
+
+    scale = scale[..., :1]  
+    if zero_point is not None:
+        zero_point = zero_point[..., :1]
 
     return scale, zero_point 
 

@@ -1,12 +1,11 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "3, 4, 5, 6"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2, 3, 4, 5"
 
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch.nn as nn
 from datasets import load_dataset
 from transformers import Trainer, default_data_collator
-import gc
 import datetime
 import torch.distributed as dist
 from logging import Logger
@@ -15,17 +14,9 @@ from .optimizer import SGDG
 from utils.data_utils import CustomJsonDataset 
 from .prepare_model import prepare_model
 from utils.process_args import process_args_ptq
-from .config import AllQuantizeConfigs
-from utils.process_args import TrainingArguments
 from utils.utils import get_logger, get_local_rank
 
 log: Logger = get_logger("RotLLM")
-
-# 16+128 (4卡 8h)(1卡 3h)    DDP:(4卡 2h)
-# 16+256 (4卡 5h)(1卡 false)
-# MODEL_PATH_ORIG = "/data/share/Qwen2.5-1.5B-Instruct"
-# MODEL_PATH_ORIG = "/data/zjh/LLM/phi-3-mini-4k-instruct"
-# MODEL_PATH_ORIG = "/data/share/Llama-3.2-3B-Instruct"
 
 def train() -> None:
     dist.init_process_group(backend="nccl", timeout=datetime.timedelta(hours=8))
@@ -38,7 +29,6 @@ def train() -> None:
     device = "cuda"
     dtype = torch.bfloat16 if training_args.bf16 else torch.float16
 
-    # 加载原始模型
     # TODO: (Fast)tokenizer params    
     tokenizer = AutoTokenizer.from_pretrained(
         pretrained_model_name_or_path=model_args.input_model,
@@ -53,7 +43,7 @@ def train() -> None:
 
     model_orig = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=model_args.input_model, torch_dtype=dtype).to(device=device)
 
-    # 准备训练数据、校准集
+    # Prepare training data and calibration set.
     dataset = load_dataset("Salesforce/wikitext", "wikitext-2-raw-v1")
     train_data = CustomJsonDataset(
         dataset["train"],
@@ -61,7 +51,7 @@ def train() -> None:
         block_size=min(training_args.model_max_length, 2048),
     )
 
-    # 准备好可训练的模型，并设置参数是否训练
+    # Prepare the trainable model and set parameters for training.
     model, R_trainable_parameters, q_trainable_parameters = prepare_model(model_orig, torch.tensor(train_data[0]["input_ids"]).unsqueeze(0).to(device=model_orig.device), quant_configs, ptq_args)
     model.train()
 
@@ -107,7 +97,7 @@ def train() -> None:
     }
     if local_rank == 0:
         os.makedirs(model_args.output_rotation_path, exist_ok=True)
-        path = os.path.join(model_args.output_rotation_path, "R.bin")
+        path = os.path.join(model_args.output_rotation_path, "RRR.bin")
         torch.save(
             R_dict,
             path,

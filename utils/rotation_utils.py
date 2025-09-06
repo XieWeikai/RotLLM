@@ -4,7 +4,7 @@ from torch import nn
 
 from .hadamard_utils import random_hadamard_matrix
 
-def random_orthogonal_matrix(size, device):         # 随机生成一个正交矩阵（float32）
+def random_orthogonal_matrix(size, device):        
     """
     Generate a random orthogonal matrix of the specified size.
     First, we generate a random matrix with entries from a standard distribution.

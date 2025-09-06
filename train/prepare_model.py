@@ -1,16 +1,13 @@
 import torch
 import torch.nn as nn
-from typing import Dict, Optional, List
+from typing import Optional, List
 import transformers
-import copy
 
 
 from .config import AllQuantizeConfigs
 from .train_model import RotationQuantLinear, RotationEmbedding
 from utils.fuse_norm_utils import fuse_layer_norms
 from utils.rotation_utils import get_orthogonal_matrix
-from modeling.qwen2 import apply_R3R4_change_qwen2_model
-from modeling.llama import apply_R3R4_change_llama_model
 from .train_parameter import LearnRotateModule, NoLearnRotateModule, FakeQuantizer
 
 
@@ -30,7 +27,6 @@ def untie_word_embeddings(model):
 
 def build_rotation_map(
         num_layers, 
-        hidden_size, 
         R1: Optional[LearnRotateModule] = None, 
         R2: Optional[List[LearnRotateModule]] = None, 
         R4: Optional[List[NoLearnRotateModule]] = None
@@ -99,31 +95,31 @@ def replace_linear_with_rotation_quant(
     model: nn.Module,
     quant_configs: AllQuantizeConfigs,
     rotation_map: dict = None,
-    prefix: str = ""  # 记录父路径
+    prefix: str = ""  # Record parent path
 ):
     """
-    替换模型中所有 nn.Linear 为 RotationQuantLinear
+    Replace all nn.Linear in the model with RotationQuantLinear.
 
     Args:
-        model (nn.Module): 原始模型
-        quant_configs (AllQuantizeConfigs): activation/weight/bias/key/value 量化配置
-        rotation_map (dict): key=模块名, value=(R_pre, R_post, rotation_pos)
-        prefix (str): 记录父路径，以便从 rotation_map 提取旋转配置
+        model (nn.Module): original model
+        quant_configs (AllQuantizeConfigs): activation/weight/bias/key/value quantitative config
+        rotation_map (dict): key=module name, value=(R_pre, R_post, rotation_pos)
+        prefix (str): Record the parent path in order to extract the rotation configuration from the rotation_map
     Returns:
-        nn.Module: 替换完成的模型
+        nn.Module: The completed model after replacement
     """
 
-    # 遍历模型模块，记录父模块和名字
+    # Traverse the model module, recording the parent module and name
     for name, module in model.named_children():
         full_name = f"{prefix}.{name}" if prefix else name
 
-        # 如果子模块是 nn.Linear，替换
+        # If the submodule is nn.Linear, replace it
         if isinstance(module, nn.Linear):
             R_pre, R_post, rotation_pos = None, None, "none"
             if rotation_map and full_name in rotation_map:
                 R_pre, R_post, rotation_pos = rotation_map[full_name]
 
-            # 构建 RotationQuantLinear
+            # Build RotationQuantLinear
             new_module = RotationQuantLinear(
                 config=quant_configs,
                 linear=module,
@@ -132,11 +128,11 @@ def replace_linear_with_rotation_quant(
                 R_post=R_post
             )
 
-            # 替换父模块中的子模块
+            # Replace the submodule in the parent module
             setattr(model, name, new_module)
 
         else:
-            # 如果不是 Linear，递归处理子模块
+            # If not linear, recursively process submodules
             replace_linear_with_rotation_quant(module, quant_configs, rotation_map, prefix=full_name)
 
     return model
@@ -150,26 +146,25 @@ def replace_embedding_with_rotation_embedding(model: nn.Module, rotation_map: di
     for name, module in model.named_children():
         full_name = f"{prefix}.{name}" if prefix else name
 
-        # 如果子模块是 nn.Embedding，替换
+        # If the submodule is nn.Embedding, replace it
         if isinstance(module, nn.Embedding):
             R_pre, R_post, rotation_pos = None, None, "none"
             if rotation_map and full_name in rotation_map:
                 R_pre, R_post, rotation_pos = rotation_map[full_name]
-            else:
-                print("No!",full_name)
 
-            # 替换父模块中的子模块
+            # Replace the submodule in the parent module
             setattr(model, name, RotationEmbedding(embedding=module, rotation_pos=rotation_pos, R_pre=R_pre, R_post=R_post))
             break
         else:
-            # 如果不是 Embedding，递归处理子模块
+            # If not embedding, recursively process submodules.
             replace_embedding_with_rotation_embedding(module, rotation_map, prefix=full_name)
     return model
 
 
 def collect_fakequant_configs(model):
     """
-    找到 model 中所有 FakeQuantizer，便于 set_special_quantization_configuration 修改 FakeQuantizer 中的量化配置 config
+    Find all FakeQuantizers in the model to facilitate the modification of the 
+    quantization configuration in FakeQuantizer using set_special_quantization_configuration.
     """
     fq_dict = {}
     for name, module in model.named_modules():
@@ -231,60 +226,69 @@ def prepare_model(model, batch: torch.Tensor, quant_configs: AllQuantizeConfigs,
 
     # untie embedding and lm_head
     untie_word_embeddings(model)
-    # 模型预处理
+    # Model preprocessing
     fuse_layer_norms(model)
 
-    # 设置训练参数
+    # Set training parameters
     for param in model.parameters():
         param.requires_grad = False
 
     model.config.use_cache = False
 
-    # 准备旋转矩阵
+    # Prepare rotation matrix
     num_layers = model.config.num_hidden_layers
     dim = model.config.hidden_size
     num_heads = model.config.num_attention_heads
     head_dim = dim // num_heads
     hidden_dim = model.config.intermediate_size
 
-    # 生成 Hadamard 旋转矩阵
+    # Generate Hadamard rotation matrix
     R1 = LearnRotateModule(get_orthogonal_matrix(dim, mode="hadamard", device=device))
     R2 = [LearnRotateModule(get_orthogonal_matrix(head_dim, mode="hadamard", device=device)) for _ in range(num_layers)]
     R3 = [NoLearnRotateModule(get_orthogonal_matrix(head_dim, mode="hadamard", device=device)) for _ in range(num_layers)]
     R4 = [NoLearnRotateModule(get_orthogonal_matrix(hidden_dim, mode="hadamard", device=device)) for _ in range(num_layers)]  
 
-    # TODO: 修改代码使该位置统一
-    # 添加 online 旋转矩阵 R3、R4
-    # apply_R3R4_change_qwen2_model(model, R3, R4, copy.deepcopy(quant_configs.key), copy.deepcopy(quant_configs.value))
-    apply_R3R4_change_llama_model(model, R3, R4, copy.deepcopy(quant_configs.key), copy.deepcopy(quant_configs.value))
+
+    # Add online rotation matrix R3 and R4
+    if model.config.model_type == "llama": 
+        from modeling.llama import apply_R3R4_change_model 
+        print("from modeling.llama import apply_R3R4_change_model")
+    elif model.config.model_type == "qwen2": 
+        from modeling.qwen2 import apply_R3R4_change_model
+        print("from modeling.qwen2 import apply_R3R4_change_model")
+    else:
+        raise NotImplementedError(f"Unsupported model type {model.config.model_type}")
+
+    apply_R3R4_change_model(model, R3, R4, quant_configs.key, quant_configs.value)
 
 
-    # 准备旋转矩阵、旋转位置
-    rotation_map = build_rotation_map(num_layers, dim, R1, R2, R4)
+    # Prepare the rotation matrix and the rotation position
+    rotation_map = build_rotation_map(num_layers, R1, R2, R4)
 
-    # 调用替换函数，替换线性层，添加旋转矩阵
+    # Call the replacement function, replace the linear layer, and add the rotation matrix and quantizer
     model = replace_linear_with_rotation_quant(
         model,
         quant_configs=quant_configs,
         rotation_map=rotation_map
     )
 
-    # 调用替换函数，替换 Embedding 层，添加旋转矩阵
+    # Call the replacement function, replace the Embedding layer, and add the rotation matrix and quantizer
     model = replace_embedding_with_rotation_embedding(
         model,
         rotation_map=rotation_map
     )
 
-    # 使用校准集中样本 batch 初始化所有 quantizer
-    model.eval()
-    with torch.no_grad(): 
-        model(batch)
+    # Initialize all quantizers using the calibration set.
+    if quant_configs.weight.mode == "static":
+        model.eval()
+        with torch.no_grad(): 
+            model(batch)
 
-    # 处理特殊层的 quantizer 的设置，改变 config
+    # Adjust the settings of the quantizer for special layers, change the config.
     model = set_special_quantization_configuration(model, ptq_args)    
 
 
-    # 整合可训练参数
+    # Integration of trainable parameters
     R_trainable_parameters = [R1.weight] + [r.weight for r in R2]
     q_trainable_parameters = [
         p for p in model.parameters() if p.requires_grad

@@ -20,7 +20,7 @@ class CustomJsonDataset(torch.utils.data.IterableDataset):
         raw_data = dataset
         self.tokenizer = tokenizer
         self.block_size = block_size
-        tokenized_datasets = []         # 每个元素是一个字典
+        tokenized_datasets = []         # Each element is a dictionary.
         for d in raw_data:
             tokenized_datasets.append(self.tokenize_function(d))
 
@@ -80,3 +80,27 @@ class CustomJsonDataset(torch.utils.data.IterableDataset):
         }
         result["labels"] = result["input_ids"].copy()
         return result
+
+
+def get_wikitext2(dataset, nsamples=128, seed=0, seqlen=2048, model="", tokenizer=None, eval_mode=False):
+    if tokenizer is None:
+        tokenizer = transformers.AutoTokenizer.from_pretrained(model, use_fast=False)
+
+    if eval_mode:
+        testdata = dataset["test"]
+        testenc = tokenizer("\n\n".join(testdata["text"]), return_tensors="pt")
+        print(testenc.input_ids.shape)
+        return testenc
+    else:
+        traindata = dataset["train"]
+        trainenc = tokenizer("\n\n".join(traindata["text"]), return_tensors="pt")
+        random.seed(seed)
+        trainloader = []
+        for _ in range(nsamples):
+            i = random.randint(0, trainenc.input_ids.shape[1] - seqlen - 1)
+            j = i + seqlen
+            inp = trainenc.input_ids[:, i:j]
+            tar = inp.clone()
+            tar[:, :-1] = -100
+            trainloader.append((inp, tar))
+        return trainloader

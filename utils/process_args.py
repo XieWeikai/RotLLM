@@ -15,18 +15,6 @@ import transformers
 
 from train.config import AllQuantizeConfigs
 
-# TODO:
-# npu 能否做 clip 操作，不同 linear 量化的 bit 数是否不同
-# 是否分布式
-# bias 怎么量化
-# quantizer.py 中，batchsize 中不同样本要不同的 scale，还是共用一个 scale
-# 一共六个 scale、zero_point ，都有哪些需要学
-# 最后一次输出激活需要量化吗，为什么会有 FP16 的计算
-# npu 为什么出来也是 int8，出来也做一次量化吗，那这样岂不是对激活做了两次同样的量化吗
-# 计算图是否会循环依赖
-# KV cache 里存的应该是量化后的吗？旋转后的吗？
-
-
 @dataclass
 class ModelArguments:
     input_model: Optional[str] = field(
@@ -39,7 +27,7 @@ class ModelArguments:
 
 @dataclass
 class TrainingArguments(transformers.TrainingArguments):
-    cache_dir: Optional[str] = field(default=None)
+    cache_dir: Optional[str] = field(default="/data/zjh/tokenizer")
     output_dir: Optional[str] = field(default="/tmp/output/")
     model_max_length: Optional[int] = field(
         default=2048,
@@ -54,32 +42,6 @@ def parser_gen():
 
     parser.add_argument(
         "--seed", type=int, default=0, help="Random Seed for HuggingFace and PyTorch"
-    )
-
-    # Rotation Arguments
-    parser.add_argument(        
-        "--rotate",
-        action=argparse.BooleanOptionalAction,   
-        default=False,
-        help="""Rotate the moodel. This will include online rotation for down-projection and
-                        out-projection. Note that this does not apply rotation to the K/Q and they will be rotated
-                        if we want to quantize the Keys""",
-    )
-    parser.add_argument(
-        "--rotate_mode", type=str, default="hadamard", choices=["hadamard", "random"]
-    )
-
-    parser.add_argument(
-        "--rotation_seed",
-        type=int,
-        default=-1,     
-        help="Random Seed for generating random matrix!!",
-    )
-    parser.add_argument(
-        "--fp32_had",   
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Apply Hadamard rotation in FP32 (default: False)",
     )
 
     # Activation Quantization Arguments
@@ -138,11 +100,43 @@ def parser_gen():
 
     # General Quantization Arguments
     parser.add_argument(
+        "--w_mse",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="""Clipping the weight quantization!
+                        We do not support arguments for clipping and we find the best clip ratio during the weight quantization""",
+    )
+    parser.add_argument(
         "--int8_down_proj",
         action=argparse.BooleanOptionalAction,
         default=False,
         help="Use INT8 for Down Projection! If this set, both weights and activations of this layer will be in INT8",
     )
+    parser.add_argument(
+        "--w_rtn",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Quantize the weights using RtN. If the w_bits < 16 and this flag is not set, we use GPTQ",
+    )
+    parser.add_argument(
+        "--nsamples",
+        type=int,
+        default=128,
+        help="Number of calibration data samples for GPTQ.",
+    )
+    parser.add_argument(
+        "--percdamp",
+        type=float,
+        default=0.01,
+        help="Percent of the average Hessian diagonal to use for dampening.",
+    )
+    parser.add_argument(
+        "--act_order",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="act-order in GPTQ",
+    )
+
 
     # KV-Cache Quantization Arguments
     parser.add_argument(
@@ -187,6 +181,14 @@ def parser_gen():
         help="Clip ratio for k-cache quantization. new_max = max * clip_ratio",
     )
 
+    # Path
+    parser.add_argument(
+        "--optimized_rotation_path",
+        type=str,
+        default=None,
+        help="Load the optimized R1 and R2 from the specified path!",
+    )
+
     args, unknown = parser.parse_known_args()
     return args, unknown
 
@@ -202,8 +204,11 @@ def process_args_ptq():
     parser = transformers.HfArgumentParser((ModelArguments, TrainingArguments))
     model_args, training_args = parser.parse_args_into_dataclasses(args=unknown_args)
 
+    ptq_args.bsz = training_args.per_device_eval_batch_size
+    print("training_args.per_device_eval_batch_size", training_args.per_device_eval_batch_size)
 
-    # 创建默认配置实例
+
+    # Create default config instance
     all_qconfigs = AllQuantizeConfigs()
 
     # activation
@@ -212,11 +217,20 @@ def process_args_ptq():
     all_qconfigs.activation.groupsize = getattr(ptq_args, "a_groupsize")
     all_qconfigs.activation.clip = getattr(ptq_args, "a_clip_ratio")
 
+    all_qconfigs.activation.int8_down_proj = getattr(ptq_args, "int8_down_proj")
+
     # weight
     all_qconfigs.weight.num_bits = getattr(ptq_args, "w_bits")
     all_qconfigs.weight.is_symmetric = not getattr(ptq_args, "w_asym")
     all_qconfigs.weight.groupsize = getattr(ptq_args, "w_groupsize") 
     all_qconfigs.weight.clip = getattr(ptq_args, "w_clip_ratio")
+
+    all_qconfigs.weight.mse = getattr(ptq_args, "w_mse")
+    all_qconfigs.weight.int8_down_proj = getattr(ptq_args, "int8_down_proj")
+    all_qconfigs.weight.rtn = getattr(ptq_args, "w_rtn")
+    all_qconfigs.weight.nsamples = getattr(ptq_args, "nsamples")
+    all_qconfigs.weight.percdamp = getattr(ptq_args, "percdamp")
+    all_qconfigs.weight.act_order = getattr(ptq_args, "act_order")
 
     # TODO: Bias (添加相关命令行参数适用于 RotLLM)
     all_qconfigs.bias.num_bits = 16

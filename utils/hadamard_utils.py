@@ -54,7 +54,7 @@ def get_hadK(n, transpose=False):
     return hadK, K
 
 
-def matmul_hadU(X, transpose=False):        # 快速计算H的矩阵相乘
+def matmul_hadU(X, transpose=False):       
     # [..., n]
     n = X.shape[-1]
     hadK, K = get_hadK(n, transpose)
@@ -90,15 +90,13 @@ def hadmard_matrix(size, device):
     I = torch.eye(size, dtype=torch.float32).to(device)
     return matmul_hadU(I).to(device)
 
-def random_hadamard_matrix(size, device):       # 生成随机化的 Hadamard 正交矩阵
+def random_hadamard_matrix(size, device):       
     # See https://cornell-relaxml.github.io/quip-sharp/ , Section "Randomized Hadamard Transformation"
     Q = torch.randint(low=0, high=2, size=(size,)).to(torch.float32)
     Q = Q * 2 - 1
     Q = torch.diag(Q)
     return matmul_hadU(Q).to(device)
 
-
-# 下面这两个函数应该是没有用到
 
 def matmul_hadU_cuda(X, hadK, K):
     n = X.shape[-1]

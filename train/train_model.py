@@ -19,11 +19,9 @@ class RotationQuantLinear(nn.Module):
 
         self.linear = linear
 
-        # 无论是 dynamic or static quantization，都使用校准集为 RotationQuantLinear 设置量化器
-        # 尽管 dynamic quantization 使用校准集无意义（为了统一代码形式）
-        self.actQuant = None
-        self.weightQuant = None
-        self.biasQuant = None
+        self.actQuant = FakeQuantizer(copy.deepcopy(self.config.activation))
+        self.weightQuant = FakeQuantizer(copy.deepcopy(self.config.weight))
+        self.biasQuant = FakeQuantizer(copy.deepcopy(self.config.bias))
 
 
     def forward(self, x):
@@ -37,7 +35,7 @@ class RotationQuantLinear(nn.Module):
             w_dtype = w.dtype
             w_device = w.device
             w = w.view(w.shape[0], num_blocks, self.R_pre.weight.shape[0])
-            w = (w.to(self.R_pre.weight.dtype) @ self.R_pre.weight.to(device=w_device)).to(dtype=w_dtype)    # (out_dim, num_blocks, in_dim_block)
+            w = (w.to(self.R_pre.weight.dtype) @ self.R_pre.weight.to(device=w_device)).to(dtype=w_dtype)   
             w = w.view(w.shape[0], num_blocks * self.R_pre.weight.shape[0])
 
         if self.rotation_pos in ["post", "around"]:
@@ -70,26 +68,14 @@ class RotationQuantLinear(nn.Module):
 
     def allQuant(self, x, w, b):
         # Activation:
-        if self.actQuant is None:   # First time setting the quantizer
-            x_q = x
-            self.actQuant = FakeQuantizer(copy.deepcopy(self.config.activation), x)
-        else:
-            x_q = self.actQuant(x)
+        x_q = self.actQuant(x)
 
         # Weight:
-        if self.weightQuant is None:   # First time setting the quantizer
-            w_q = w
-            self.weightQuant = FakeQuantizer(copy.deepcopy(self.config.weight), w)
-        else:
-            w_q = self.weightQuant(w)
+        w_q = self.weightQuant(w)
 
         # bias:
         if b is not None:
-            if self.biasQuant is None:   # First time setting the quantizer
-                b_q = b
-                self.biasQuant = FakeQuantizer(copy.deepcopy(self.config.bias), b)
-            else:
-                b_q = self.biasQuant(b)
+            b_q = self.biasQuant(b)
         else:
             b_q = None
             
@@ -110,8 +96,8 @@ class RotationEmbedding(nn.Module):
         input_ids: LongTensor [batch_size, seq_len]
         return: FloatTensor [batch_size, seq_len, hidden_size]
         """
-        # 获取原始嵌入
-        embeds = self.embedding(input_ids)  # [B, L, H]
+        # Get the original embedding
+        embeds = self.embedding(input_ids)  # [B, L, D]
 
         assert self.rotation_pos not in ["pre", "around"], "An error occurred in the rotation position of the embedding layer."
             

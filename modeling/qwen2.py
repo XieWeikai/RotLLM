@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from typing import Tuple, Optional, Callable
+import copy
 
 from transformers.models.qwen2.modeling_qwen2 import (
     Qwen2MLP, 
@@ -39,7 +40,7 @@ class Qwen2MLPWithR4(nn.Module):
         return down_proj
 
 class Qwen2AttentionWithR3(nn.Module):
-    def __init__(self, module: Qwen2Attention, R3, k_quant_config: QuantizeConfig, v_quant_config: QuantizeConfig):
+    def __init__(self, module: Qwen2Attention, R3, k_quant_config: QuantizeConfig, v_quant_config: QuantizeConfig, to_quant: bool = True):
         super().__init__()
         self.config = module.config
         self.layer_idx = module.layer_idx
@@ -54,12 +55,17 @@ class Qwen2AttentionWithR3(nn.Module):
         self.v_proj = module.v_proj
         self.o_proj = module.o_proj
 
+        self.k_quant_config = copy.deepcopy(k_quant_config)
+        self.v_quant_config = copy.deepcopy(v_quant_config)
+
         # Optional Rotation Matrix
         self.R3 = R3
-        self.k_quant_config = k_quant_config
-        self.v_quant_config = v_quant_config
-        self.kQuant = None
-        self.vQuant = None
+        if to_quant:
+            self.kQuant = FakeQuantizer(self.k_quant_config)
+            self.vQuant = FakeQuantizer(self.v_quant_config)
+        else:
+            self.kQuant = None
+            self.vQuant = None
 
     def forward(
         self,
@@ -91,17 +97,12 @@ class Qwen2AttentionWithR3(nn.Module):
         key_states = key_states.to(dtype=k_type)
 
         # Key:
-        if self.kQuant is None:   # First time setting the quantizer
-            self.kQuant = FakeQuantizer(self.k_quant_config, key_states)
-        else:
+        if self.kQuant is not None:
             key_states = self.kQuant(key_states)
 
         # Value:
-        if self.vQuant is None:   # First time setting the quantizer
-            self.vQuant = FakeQuantizer(self.v_quant_config, value_states)
-        else:
+        if self.vQuant is not None:
             value_states = self.vQuant(value_states)
-
 
         if past_key_value is not None:
             # sin and cos are specific to RoPE models; cache_position needed for the static cache
@@ -150,7 +151,7 @@ def get_parent_module(model, module_name):
         parent = getattr(parent, p)
     return parent, parts[-1]
 
-def apply_R3R4_change_qwen2_model(model, R3_list, R4_list, k_Quant_config: QuantizeConfig, v_Quant_config: QuantizeConfig):
+def apply_R3R4_change_model(model, R3_list, R4_list, k_Quant_config: QuantizeConfig, v_Quant_config: QuantizeConfig):
     """
         Replace Qwen2MLP with Qwen2MLPWithR4
         Replace Qwen2Attention with Qwen2AttentionWithR3
@@ -176,6 +177,14 @@ def apply_R3R4_change_qwen2_model(model, R3_list, R4_list, k_Quant_config: Quant
             attn_layer_idx += 1
 
 
-
-
-
+def value_kv_quantizers(model: nn.Module):
+    """
+    Traverse all Qwen2AttentionWithR3 layers in the model, 
+    and use the saved k_Quant_config and v_Quant_config 
+    to assign values to kQuant and vQuant.
+    """
+    for module in model.modules():
+        if isinstance(module, Qwen2AttentionWithR3):
+            assert module.kQuant is None and module.vQuant is None, "Reassign kQuant or vQuant"
+            module.kQuant = FakeQuantizer(module.k_quant_config)
+            module.vQuant = FakeQuantizer(module.v_quant_config)
