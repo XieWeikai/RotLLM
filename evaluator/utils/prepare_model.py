@@ -1,11 +1,12 @@
-import transformers
+import torch
 
 from train.config import AllQuantizeConfigs
 from train.prepare_model import (
     untie_word_embeddings, 
     replace_linear_with_rotation_quant, 
     collect_fakequant_configs, 
-    model_down_proj_groupsize
+    model_down_proj_groupsize,
+    rotate_down_proj_weights
 )
 from utils.fuse_norm_utils import fuse_layer_norms
 from utils.rotation_utils import get_orthogonal_matrix
@@ -48,7 +49,6 @@ def set_special_quantization_configuration(model, ptq_args):
 
 
 def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, model_args):
-    transformers.set_seed(ptq_args.seed)
     device = model.device
 
     # untie embedding and lm_head
@@ -67,8 +67,10 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
 
     # TODO: 保存模型的时候如何处理
     # Generate online rotation matrix
-    R3 = [NoLearnRotateModule(get_orthogonal_matrix(head_dim, mode="hadamard", device=device)) for _ in range(num_layers)]
-    R4 = [NoLearnRotateModule(get_orthogonal_matrix(hidden_dim, mode="hadamard", device=device)) for _ in range(num_layers)]  
+    R3 = [NoLearnRotateModule(get_orthogonal_matrix(head_dim, mode="hadamard", device=device).to(dtype=torch.float64)) for _ in range(num_layers)]
+    R4 = [NoLearnRotateModule(get_orthogonal_matrix(hidden_dim, mode="hadamard", device=device).to(dtype=torch.float64)) for _ in range(num_layers)]  
+
+    rotate_down_proj_weights(model)
 
     # Add online rotation matrices R3 and R4, but do not add the quantizer for Key and Value; 
     # wait to add this quantizer after GPTQ quantizes the weights.

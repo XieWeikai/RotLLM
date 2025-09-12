@@ -8,9 +8,9 @@
 # nnodes determines the number of GPU nodes to utilize (usually 1 for an 8 GPU node)
 # nproc_per_node indicates the number of GPUs per node to employ.
 
-# export HF_ENDPOINT=https://hf-mirror.com
 # For example: bash scripts/2_eval_ptq.sh /data/share/Llama-3.2-3B 4 4 4
-python -m evaluator.ptq \
+export HF_ENDPOINT=https://hf-mirror.com
+CUDA_VISIBLE_DEVICES=6 python -m evaluator.ptq \
 --input_model $1 \
 --do_train False \
 --do_eval True \
@@ -29,5 +29,5 @@ python -m evaluator.ptq \
 --v_asym \
 --k_groupsize 128 \
 --v_groupsize 128 \
---optimized_rotation_path "/data/zjh/R.bin" \
+--optimized_rotation_path "/data/zjh/R_bs_8.bin" \
 

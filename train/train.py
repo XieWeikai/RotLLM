@@ -1,14 +1,13 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "2, 3, 4, 5"
-
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch.nn as nn
 from datasets import load_dataset
-from transformers import Trainer, default_data_collator
+from transformers import LlamaTokenizerFast, Trainer, default_data_collator
 import datetime
 import torch.distributed as dist
 from logging import Logger
+import transformers
 
 from .optimizer import SGDG
 from utils.data_utils import CustomJsonDataset 
@@ -21,6 +20,7 @@ log: Logger = get_logger("RotLLM")
 def train() -> None:
     dist.init_process_group(backend="nccl", timeout=datetime.timedelta(hours=8))
     model_args, training_args, ptq_args, quant_configs = process_args_ptq()
+    transformers.set_seed(ptq_args.seed)
     local_rank = get_local_rank()
 
     log.info("the rank is {}".format(local_rank))
@@ -30,11 +30,21 @@ def train() -> None:
     dtype = torch.bfloat16 if training_args.bf16 else torch.float16
 
     # TODO: (Fast)tokenizer params    
-    tokenizer = AutoTokenizer.from_pretrained(
+    # tokenizer = AutoTokenizer.from_pretrained(
+    #     pretrained_model_name_or_path=model_args.input_model,
+    #     cache_dir=training_args.cache_dir,
+    #     model_max_length=training_args.model_max_length,
+    #     padding_side="right",
+    #     add_eos_token=False,
+    #     add_bos_token=False,
+    # )
+
+    tokenizer = LlamaTokenizerFast.from_pretrained( 
         pretrained_model_name_or_path=model_args.input_model,
-        cache_dir=training_args.cache_dir,
+        cache_dir=training_args.cache_dir,              
         model_max_length=training_args.model_max_length,
         padding_side="right",
+        use_fast=True,
         add_eos_token=False,
         add_bos_token=False,
     )
@@ -51,8 +61,18 @@ def train() -> None:
         block_size=min(training_args.model_max_length, 2048),
     )
 
+    # Prepare the calibration set for static quantization, used to initialize scale and zero_point
+    num_samples = quant_configs.activation.need_sample_for_static_init
+    samples = [train_data[i + 10]["input_ids"] for i in range(num_samples)]
+    batch = torch.tensor(samples).to(device=model_orig.device)
+
     # Prepare the trainable model and set parameters for training.
-    model, R_trainable_parameters, q_trainable_parameters = prepare_model(model_orig, torch.tensor(train_data[0]["input_ids"]).unsqueeze(0).to(device=model_orig.device), quant_configs, ptq_args)
+    model, R_trainable_parameters, q_trainable_parameters = prepare_model(
+        model_orig, 
+        batch, 
+        quant_configs, 
+        ptq_args
+    )
     model.train()
 
     if local_rank == 0:
@@ -62,10 +82,10 @@ def train() -> None:
     # Applicable to RotLLM
     # optimizer = SGDG(
     #     [
-    #         {"params": R_trainable_parameters, "lr": learning_rate, "stiefel": True},
-    #         {"params": q_trainable_parameters, "lr": learning_rate}
+    #         {"params": R_trainable_parameters, "lr": training_args.learning_rate, "stiefel": True},
+    #         {"params": q_trainable_parameters, "lr": 0.0001}
     #     ],
-    #     lr=learning_rate
+    #     lr=training_args.learning_rate
     # )
 
     # Applicable to SpinQuant
@@ -96,8 +116,9 @@ def train() -> None:
         if "embed_tokens.R_post.weight" in key or "self_attn.v_proj.R_post.weight" in key
     }
     if local_rank == 0:
-        os.makedirs(model_args.output_rotation_path, exist_ok=True)
-        path = os.path.join(model_args.output_rotation_path, "RRR.bin")
+        path = model_args.output_rotation_path
+        dir_name = os.path.dirname(path)  
+        os.makedirs(dir_name, exist_ok=True)  
         torch.save(
             R_dict,
             path,

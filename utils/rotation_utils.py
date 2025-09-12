@@ -18,7 +18,7 @@ def random_orthogonal_matrix(size, device):
     torch.Tensor: An orthogonal matrix of the specified size.
     """
     torch.cuda.empty_cache()
-    random_matrix = torch.randn(size, size, dtype=torch.float32).to(device)
+    random_matrix = torch.randn(size, size, dtype=torch.float64).to(device)
     q, r = torch.linalg.qr(random_matrix)
     q *= torch.sign(torch.diag(r)).unsqueeze(0)
     return q

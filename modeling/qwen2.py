@@ -1,28 +1,26 @@
 import torch
 import torch.nn as nn
-from typing import Tuple, Optional, Callable
 import copy
+from typing import Tuple, Optional
+import math
 
 from transformers.models.qwen2.modeling_qwen2 import (
-    Qwen2MLP, 
-    Qwen2Attention, 
-    Cache, 
-    Unpack, 
-    FlashAttentionKwargs,
+    Qwen2MLP,
+    Qwen2Attention,
+    logger,
+    Cache,
     apply_rotary_pos_emb,
-    eager_attention_forward,
-    ALL_ATTENTION_FUNCTIONS,
-    logger
+    repeat_kv
 )
+
 
 from train.train_parameter import FakeQuantizer
 from train.config import QuantizeConfig
-
+from utils.hadamard_utils import get_hadK, matmul_hadU_cuda, hadamard_transform
 
 class Qwen2MLPWithR4(nn.Module):
     def __init__(self, module: Qwen2MLP, R4):
         super().__init__()
-        self.config = module.config
         self.hidden_size = module.hidden_size
         self.intermediate_size = module.intermediate_size
         self.gate_proj = module.gate_proj
@@ -36,20 +34,50 @@ class Qwen2MLPWithR4(nn.Module):
         gated_activation = self.act_fn(self.gate_proj(x)) * self.up_proj(x)
         gated_activation_dtype = gated_activation.dtype
         gated_activation_device = gated_activation.device
-        down_proj = self.down_proj((gated_activation.to(dtype = self.R4.weight.dtype) @ self.R4.weight.to(gated_activation_device)).to(dtype = gated_activation_dtype))
+        # down_proj = self.down_proj((gated_activation.to(dtype = self.R4.weight.dtype) @ self.R4.weight.to(gated_activation_device)).to(dtype = gated_activation_dtype))
+        
+        assert gated_activation.shape[-1] == self.intermediate_size, f"Expected last dim {self.intermediate_size}, but got {gated_activation.shape[-1]}"
+        had_K, K = get_hadK(self.intermediate_size)
+
+        gated_activation = matmul_hadU_cuda(gated_activation, had_K, K).to(dtype = gated_activation_dtype)
+        down_proj = self.down_proj(gated_activation)
+        
         return down_proj
 
+
 class Qwen2AttentionWithR3(nn.Module):
+    """
+    Multi-headed attention from 'Attention Is All You Need' paper. Modified to use sliding window attention: Longformer
+    and "Generating Long Sequences with Sparse Transformers".
+    """
+
     def __init__(self, module: Qwen2Attention, R3, k_quant_config: QuantizeConfig, v_quant_config: QuantizeConfig, to_quant: bool = True):
         super().__init__()
         self.config = module.config
         self.layer_idx = module.layer_idx
-        self.head_dim = module.head_dim
-        self.num_key_value_groups = module.num_key_value_groups
-        self.scaling = module.scaling
-        self.attention_dropout = module.attention_dropout
-        self.is_causal = module.is_causal
+        if self.layer_idx is None:
+            logger.warning_once(
+                f"Instantiating {self.__class__.__name__} without passing `layer_idx` is not recommended and will "
+                "to errors during the forward call, if caching is used. Please make sure to provide a `layer_idx` "
+                "when creating this class."
+            )
 
+        self.hidden_size = module.hidden_size
+        self.num_heads = module.config.num_attention_heads
+        self.head_dim = self.hidden_size // self.num_heads
+        self.num_key_value_heads = module.num_key_value_heads
+        self.num_key_value_groups = self.num_heads // self.num_key_value_heads
+        self.max_position_embeddings = module.max_position_embeddings
+        self.rope_theta = module.rope_theta
+        self.is_causal = module.is_causal
+        self.attention_dropout = module.attention_dropout
+
+        if (self.head_dim * self.num_heads) != self.hidden_size:
+            raise ValueError(
+                f"hidden_size must be divisible by num_heads (got `hidden_size`: {self.hidden_size}"
+                f" and `num_heads`: {self.num_heads})."
+            )
+        
         self.q_proj = module.q_proj
         self.k_proj = module.k_proj
         self.v_proj = module.v_proj
@@ -67,32 +95,51 @@ class Qwen2AttentionWithR3(nn.Module):
             self.kQuant = None
             self.vQuant = None
 
+        self.rotary_emb = module.rotary_emb
+
     def forward(
         self,
         hidden_states: torch.Tensor,
-        position_embeddings: Tuple[torch.Tensor, torch.Tensor],
-        attention_mask: Optional[torch.Tensor],
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
         past_key_value: Optional[Cache] = None,
+        output_attentions: bool = False,
+        use_cache: bool = False,
         cache_position: Optional[torch.LongTensor] = None,
-        **kwargs: Unpack[FlashAttentionKwargs],
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
-        input_shape = hidden_states.shape[:-1]
-        hidden_shape = (*input_shape, -1, self.head_dim)
+        bsz, q_len, _ = hidden_states.size()
 
-        query_states = self.q_proj(hidden_states).view(hidden_shape).transpose(1, 2)
-        key_states = self.k_proj(hidden_states).view(hidden_shape).transpose(1, 2)
-        value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+        query_states = self.q_proj(hidden_states)
+        key_states = self.k_proj(hidden_states)
+        value_states = self.v_proj(hidden_states)
 
-        cos, sin = position_embeddings
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+        query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+        key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+        value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+
+        kv_seq_len = key_states.shape[-2]
+        if past_key_value is not None:
+            if self.layer_idx is None:
+                raise ValueError(
+                    f"The cache structure has changed since version v4.36. If you are using {self.__class__.__name__} "
+                    "for auto-regressive decoding with k/v caching, please make sure to initialize the attention class "
+                    "with a layer index."
+                )
+            kv_seq_len += past_key_value.get_usable_length(kv_seq_len, self.layer_idx)
+        cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
 
         # We modify (add R3)
         q_type = query_states.dtype
         k_type = key_states.dtype
         q_device = query_states.device
         k_device = key_states.device
-        query_states = query_states.to(dtype = self.R3.weight.dtype) @ self.R3.weight.to(device=q_device)
-        key_states = key_states.to(dtype = self.R3.weight.dtype) @ self.R3.weight.to(device=k_device)
+        # query_states = query_states.to(dtype = self.R3.weight.dtype) @ self.R3.weight.to(device=q_device)
+        # key_states = key_states.to(dtype = self.R3.weight.dtype) @ self.R3.weight.to(device=k_device)
+
+        query_states = hadamard_transform(query_states.float()) / math.sqrt(query_states.shape[-1])
+        key_states = hadamard_transform(key_states.float()) / math.sqrt(key_states.shape[-1])
+
         query_states = query_states.to(dtype=q_type)
         key_states = key_states.to(dtype=k_type)
 
@@ -105,43 +152,46 @@ class Qwen2AttentionWithR3(nn.Module):
             value_states = self.vQuant(value_states)
 
         if past_key_value is not None:
-            # sin and cos are specific to RoPE models; cache_position needed for the static cache
-            cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
+            cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}  # Specific to RoPE models
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
-        sliding_window = None
-        if (
-            self.config.use_sliding_window
-            and getattr(self.config, "sliding_window", None) is not None
-            and self.layer_idx >= self.config.max_window_layers
-        ):
-            sliding_window = self.config.sliding_window
+        # repeat k/v heads if n_kv_heads < n_heads
+        key_states = repeat_kv(key_states, self.num_key_value_groups)
+        value_states = repeat_kv(value_states, self.num_key_value_groups)
 
-        attention_interface: Callable = eager_attention_forward
-        if self.config._attn_implementation != "eager":
-            if self.config._attn_implementation == "sdpa" and kwargs.get("output_attentions", False):
-                logger.warning_once(
-                    "`torch.nn.functional.scaled_dot_product_attention` does not support `output_attentions=True`. Falling back to "
-                    'eager attention. This warning can be removed using the argument `attn_implementation="eager"` when loading the model.'
-                )
-            else:
-                attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
+        attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
 
-        attn_output, attn_weights = attention_interface(
-            self,
-            query_states,
-            key_states,
-            value_states,
-            attention_mask,
-            dropout=0.0 if not self.training else self.attention_dropout,
-            scaling=self.scaling,
-            sliding_window=sliding_window,  # main diff with Llama
-            **kwargs,
-        )
+        if attn_weights.size() != (bsz, self.num_heads, q_len, kv_seq_len):
+            raise ValueError(
+                f"Attention weights should be of size {(bsz, self.num_heads, q_len, kv_seq_len)}, but is"
+                f" {attn_weights.size()}"
+            )
 
-        attn_output = attn_output.reshape(*input_shape, -1).contiguous()
+        if attention_mask is not None:  # no matter the length, we just slice it
+            causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
+            attn_weights = attn_weights + causal_mask
+
+        # upcast attention to fp32
+        attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+        attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
+        attn_output = torch.matmul(attn_weights, value_states)
+
+        if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
+            raise ValueError(
+                f"`attn_output` should be of size {(bsz, self.num_heads, q_len, self.head_dim)}, but is"
+                f" {attn_output.size()}"
+            )
+
+        attn_output = attn_output.transpose(1, 2).contiguous()
+        attn_output = attn_output.reshape(bsz, q_len, self.hidden_size)
+
         attn_output = self.o_proj(attn_output)
-        return attn_output, attn_weights
+
+        if not output_attentions:
+            attn_weights = None
+
+        return attn_output, attn_weights, past_key_value
+    
 
 
 def get_parent_module(model, module_name):
@@ -151,7 +201,7 @@ def get_parent_module(model, module_name):
         parent = getattr(parent, p)
     return parent, parts[-1]
 
-def apply_R3R4_change_model(model, R3_list, R4_list, k_Quant_config: QuantizeConfig, v_Quant_config: QuantizeConfig):
+def apply_R3R4_change_qwen2_model(model, R3_list, R4_list, k_Quant_config: QuantizeConfig, v_Quant_config: QuantizeConfig, to_quant: bool = True):
     """
         Replace Qwen2MLP with Qwen2MLPWithR4
         Replace Qwen2Attention with Qwen2AttentionWithR3
@@ -173,13 +223,13 @@ def apply_R3R4_change_model(model, R3_list, R4_list, k_Quant_config: QuantizeCon
 
             # Take out the R3 of the corresponding layer from the list.
             R3_layer = R3_list[attn_layer_idx]
-            setattr(parent, attr_name, Qwen2AttentionWithR3(module, R3_layer, k_Quant_config, v_Quant_config))
+            setattr(parent, attr_name, Qwen2AttentionWithR3(module, R3_layer, k_Quant_config, v_Quant_config, to_quant))
             attn_layer_idx += 1
 
 
 def value_kv_quantizers(model: nn.Module):
     """
-    Traverse all Qwen2AttentionWithR3 layers in the model, 
+    Traverse all LlamaAttentionWithR3 layers in the model, 
     and use the saved k_Quant_config and v_Quant_config 
     to assign values to kQuant and vQuant.
     """

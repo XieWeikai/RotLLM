@@ -41,11 +41,11 @@ def find_params_per_groupwise(input: torch.Tensor, config, min_val, max_val)->Tu
     xmax = torch.amax(reshaped_input, dim=3, keepdim=True) * config.clip_ratio
     xmin = torch.amin(reshaped_input, dim=3, keepdim=True) * config.clip_ratio
     if config.is_symmetric:
-        xmax = torch.maximum(torch.abs(xmin), torch.abs(xmax))
+        xmax = torch.maximum(torch.abs(xmin), torch.abs(xmax)).clamp(min=1e-5)
         scale = xmax / max_val
         zero_point = None
     else:
-        scale = (xmax - xmin) / (max_val - min_val)
+        scale = (xmax - xmin).clamp(min=1e-5) / (max_val - min_val)
         zero_point = torch.round(min_val - xmin / scale)   
 
     if isinstance(config, WeightQuantizeConfig) and config.mse:
@@ -102,16 +102,21 @@ def compute_qparams_dynamic(input: torch.Tensor, config, min_val, max_val)->Tupl
     xmax = torch.amax(reshaped_input, dim=1, keepdim=True) * config.clip_ratio
     xmin = torch.amin(reshaped_input, dim=1, keepdim=True) * config.clip_ratio
 
+    tmp = torch.zeros_like(xmax).to(torch.float32)
+    xmax = torch.maximum(xmax, tmp)
+    xmin = torch.minimum(xmin, tmp)
+
     if config.is_symmetric:
-        xmax = torch.maximum(torch.abs(xmin), torch.abs(xmax))
+        xmax = torch.maximum(torch.abs(xmin), torch.abs(xmax)).clamp(min=1e-5)
         scale = xmax / max_val
         zero_point = None
     else:
-        scale = (xmax - xmin) / (max_val - min_val)
+        scale = (xmax - xmin).clamp(min=1e-5) / (max_val - min_val)
         zero_point = torch.round(min_val - xmin / scale)
 
     if isinstance(config, WeightQuantizeConfig) and config.mse:
-        best_error = torch.full([reshaped_input.shape[0]], float("inf"), device=reshaped_input.device, dtype=reshaped_input.dtype)
+        # best_error = torch.full([reshaped_input.shape[0]], float("inf"), device=reshaped_input.device, dtype=reshaped_input.dtype)
+        best_error = torch.full([reshaped_input.shape[0]], float("inf"), device=reshaped_input.device)
         best_scale = scale.clone()
         best_zero = zero_point.clone() if zero_point is not None else None
 
@@ -149,30 +154,32 @@ def compute_qparams_dynamic(input: torch.Tensor, config, min_val, max_val)->Tupl
 
     return scale, zero_point 
 
-def compute_qparams_static(input: torch.Tensor, config, min_val, max_val)->Tuple[torch.Tensor, Optional[torch.Tensor]]:
+def compute_qparams_static(config, input_max, input_min, min_val, max_val) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
     """
     Static compute scale and zero point for quantization.
     """
-    init_shape = input.shape
+    if config.is_symmetric:
+        input_max = torch.maximum(torch.abs(input_min), torch.abs(input_max))
+        scale = input_max / max_val
+        zero_point = None
+    else:
+        scale = (input_max - input_min) / (max_val - min_val)
+        zero_point = torch.round(min_val - input_min / scale)
+        
+    scale = scale.to(torch.float32)
+    zero_point = zero_point.to(torch.float32) if zero_point is not None else None
 
+    return scale, zero_point 
+
+
+def compute_input_min_max_static(input: torch.Tensor, config):
     if config.granularity == 'per_tensor':
         input = input.flatten() 
 
     xmax = torch.amax(input, dim=-1, keepdim=True) * config.clip_ratio
     xmin = torch.amin(input, dim=-1, keepdim=True) * config.clip_ratio
 
-    if config.is_symmetric:
-        xmax = torch.maximum(torch.abs(xmin), torch.abs(xmax))
-        scale = xmax / max_val
-        zero_point = None
-    else:
-        scale = (xmax - xmin) / (max_val - min_val)
-        zero_point = torch.round(min_val - xmin / scale)
-        
-    scale = scale.to(torch.float32)
-    zero_point = zero_point.to(torch.float32) if zero_point is not None else None
-
-    return scale, zero_point 
+    return xmax, xmin
 
 
 class StaticLearnableFakeQuantizeFunction(torch.autograd.Function):
@@ -316,7 +323,7 @@ class DynamicUnLearnableFakeQuantizeFunction(torch.autograd.Function):
             dequantized = (quantized - zero_point) * scale
         else:
             quantized = torch.clamp(torch.round(input / scale), min_val, max_val)
-            dequantized = quantized * scale 
+            dequantized = quantized * scale
         return dequantized      
 
     @staticmethod

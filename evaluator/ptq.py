@@ -1,10 +1,8 @@
-import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "6"
-
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import LlamaTokenizerFast, AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset
 from logging import Logger
+import transformers
 
 from utils.data_utils import get_wikitext2
 from evaluator.utils.prepare_model import prepare_model
@@ -16,15 +14,26 @@ log: Logger = get_logger("RotLLM")
 
 def eval() -> None:
     model_args, training_args, ptq_args, quant_configs = process_args_ptq()
+    transformers.set_seed(ptq_args.seed)
     device = "cuda"
     dtype = torch.bfloat16 if training_args.bf16 else torch.float16
 
     # TODO: (Fast)tokenizer params    
-    tokenizer = AutoTokenizer.from_pretrained(
+    # tokenizer = AutoTokenizer.from_pretrained(
+    #     pretrained_model_name_or_path=model_args.input_model,
+    #     cache_dir=training_args.cache_dir,
+    #     model_max_length=training_args.model_max_length,
+    #     padding_side="right",
+    #     add_eos_token=False,
+    #     add_bos_token=False,
+    # )
+
+    tokenizer = LlamaTokenizerFast.from_pretrained(
         pretrained_model_name_or_path=model_args.input_model,
         cache_dir=training_args.cache_dir,
         model_max_length=training_args.model_max_length,
         padding_side="right",
+        use_fast=True,
         add_eos_token=False,
         add_bos_token=False,
     )

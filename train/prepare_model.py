@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from typing import Optional, List
-import transformers
+from tqdm import tqdm
 
 
 from .config import AllQuantizeConfigs
@@ -9,8 +9,9 @@ from .train_model import RotationQuantLinear, RotationEmbedding
 from utils.fuse_norm_utils import fuse_layer_norms
 from utils.rotation_utils import get_orthogonal_matrix
 from .train_parameter import LearnRotateModule, NoLearnRotateModule, FakeQuantizer
+from utils.hadamard_utils import get_hadK, matmul_hadU_cuda
 
-
+# 5.31 -> 3.70
 def untie_word_embeddings(model):
     if model.config.tie_word_embeddings:
         model.config.tie_word_embeddings = False
@@ -24,6 +25,8 @@ def untie_word_embeddings(model):
 
         # ensure that the ptr of weight of lm_head is not the same as ptr of the weight of embed_tokens
         assert model.model.embed_tokens.weight.data_ptr() != model.lm_head.weight.data_ptr()
+        # model.lm_head.weight.data = model.model.embed_tokens.weight.data.clone()
+
 
 def build_rotation_map(
         num_layers, 
@@ -82,10 +85,15 @@ def build_rotation_map(
             None,
             "pre"
         )
+        # rotation_map[f"model.layers.{i}.mlp.down_proj"] = (
+        #     R4[i],
+        #     R1, 
+        #     "around"
+        # )
         rotation_map[f"model.layers.{i}.mlp.down_proj"] = (
-            R4[i],
+            None,
             R1, 
-            "around"
+            "post"
         )
 
     return rotation_map
@@ -141,7 +149,7 @@ def replace_linear_with_rotation_quant(
 
 def replace_embedding_with_rotation_embedding(model: nn.Module, rotation_map: dict = None, prefix: str = ""):
     """
-    替换模型中 nn.Embedding 为 RotationEmbedding，并设置旋转矩阵
+    Replace all nn.Embedding in the model with RotationEmbedding
     """
     for name, module in model.named_children():
         full_name = f"{prefix}.{name}" if prefix else name
@@ -159,6 +167,26 @@ def replace_embedding_with_rotation_embedding(model: nn.Module, rotation_map: di
             # If not embedding, recursively process submodules.
             replace_embedding_with_rotation_embedding(module, rotation_map, prefix=full_name)
     return model
+
+
+def rotate_down_proj_weights(model: nn.Module) -> None:
+    """
+    Traverse the model, find all down_proj layers, and rotate their weights.
+    """
+    for name, module in model.named_modules():
+        if 'down_proj' in name and isinstance(module, torch.nn.Linear):
+            W_ = module.weight.data
+            dtype = W_.dtype
+            dev = W_.device
+            W_ = W_.float()
+
+            # Obtain the rotation matrix
+            had_K, K = get_hadK(module.in_features)
+
+            # Rotate weight
+            W_ = matmul_hadU_cuda(W_, had_K, K)
+
+            module.weight.data = W_.to(device=dev, dtype=dtype)
 
 
 def collect_fakequant_configs(model):
@@ -221,8 +249,8 @@ def set_special_quantization_configuration(model, ptq_args):
 
 
 def prepare_model(model, batch: torch.Tensor, quant_configs: AllQuantizeConfigs, ptq_args):
-    transformers.set_seed(ptq_args.seed)
     device = model.device
+    # model.eval()
 
     # untie embedding and lm_head
     untie_word_embeddings(model)
@@ -248,6 +276,9 @@ def prepare_model(model, batch: torch.Tensor, quant_configs: AllQuantizeConfigs,
     R3 = [NoLearnRotateModule(get_orthogonal_matrix(head_dim, mode="hadamard", device=device)) for _ in range(num_layers)]
     R4 = [NoLearnRotateModule(get_orthogonal_matrix(hidden_dim, mode="hadamard", device=device)) for _ in range(num_layers)]  
 
+
+    # Add the mergeable rotation matrix R4 on down_proj
+    rotate_down_proj_weights(model)
 
     # Add online rotation matrix R3 and R4
     if model.config.model_type == "llama": 
@@ -282,7 +313,11 @@ def prepare_model(model, batch: torch.Tensor, quant_configs: AllQuantizeConfigs,
     if quant_configs.weight.mode == "static":
         model.eval()
         with torch.no_grad(): 
-            model(batch)
+            print("bs:", batch.size(0))
+            for i in tqdm(range(batch.size(0)), desc="Init scale and zero_point for static quant"):
+                sample = batch[i].unsqueeze(0)  # 保持 batch 维度
+                model(sample)
+            print("Init scale and zero_point ok!")
 
     # Adjust the settings of the quantizer for special layers, change the config.
     model = set_special_quantization_configuration(model, ptq_args)    
