@@ -42,6 +42,13 @@ def Cayley_loop(X, W, tan_vec, t):  #
 def qr_retraction(tan_vec):  # tan_vec, p-by-n, p <= n
     [p, n] = tan_vec.size()
     tan_vec.t_()
+
+    # if not torch.isfinite(tan_vec).all():
+    #     print("tan_vec contains NaN or Inf!")
+    # print("tan_vec shape:", tan_vec.shape)
+    # print("tan_vec dtype:", tan_vec.dtype)
+    # print(torch.cuda.memory_summary())
+
     q, r = torch.linalg.qr(tan_vec)
     d = torch.diag(r, 0)
     ph = d.sign()

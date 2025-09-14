@@ -5,8 +5,8 @@ class QuantizeConfig:
     """
     Base onfiguration for quantization.
     """
-    mode: str = 'dynamic'               # 'dynamic'(Only support per-channel and per-group) or 'static' (Only support per-tensor and per-channel)
-    granularity: str = 'per_tensor'     # 'per_tensor' or 'per_channel' (When mode == static, granularity is effective.)
+    mode: str = 'static'               # 'dynamic'(Only support per-channel and per-group) or 'static' (Only support per-tensor and per-channel)
+    granularity: str = 'per_channel'     # 'per_tensor' or 'per_channel' (When mode == static, granularity is effective.)
     need_sample_for_static_init: int = 16
 
     num_bits: int = 8

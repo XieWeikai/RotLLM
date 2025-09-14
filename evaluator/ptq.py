@@ -9,6 +9,7 @@ from evaluator.utils.prepare_model import prepare_model
 from utils.process_args import process_args_ptq
 from utils.utils import get_logger
 from evaluator.utils.evaluator import evaluator
+from utils.data_utils import CustomJsonDataset
 
 log: Logger = get_logger("RotLLM")
 
@@ -45,9 +46,21 @@ def eval() -> None:
     model.config.use_cache = False
     # Prepare the dataset (for calibration and evaluation)
     dataset = load_dataset("Salesforce/wikitext", "wikitext-2-raw-v1")
+
+
+    train_data = CustomJsonDataset(
+        dataset["train"],
+        tokenizer,
+        block_size=min(training_args.model_max_length, 2048),
+    )
+
+    # Prepare the calibration set for static quantization, used to initialize scale and zero_point
+    num_samples = quant_configs.activation.need_sample_for_static_init
+    samples = [train_data[i + 10]["input_ids"] for i in range(num_samples)]
+    batch = torch.tensor(samples).to(device=model.device)
     
     # Prepare the model
-    model = prepare_model(model, dataset, quant_configs, ptq_args, model_args)
+    model = prepare_model(model, dataset, batch, quant_configs, ptq_args, model_args)
 
     log.info("Model init completed for evaling...")
     log.info("Start to eval...")

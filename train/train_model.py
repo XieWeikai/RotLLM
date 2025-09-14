@@ -25,6 +25,7 @@ class RotationQuantLinear(nn.Module):
 
 
     def forward(self, x):
+        assert x.dtype == torch.bfloat16, "haha"
         w = self.linear.weight
         b = self.linear.bias if self.linear.bias is not None else None
 
@@ -35,8 +36,8 @@ class RotationQuantLinear(nn.Module):
             w_dtype = w.dtype
             w_device = w.device
             w = w.view(w.shape[0], num_blocks, self.R_pre.weight.shape[0])
-            # w = (w.to(self.R_pre.weight.dtype) @ self.R_pre.weight.to(device=w_device)).to(dtype=w_dtype)
-            w = (w.to(dtype=torch.float64) @ self.R_pre.weight.to(dtype=torch.float64, device=w_device)).to(dtype=w_dtype) 
+            w = (w.to(self.R_pre.weight.dtype) @ self.R_pre.weight.to(device=w_device)).to(dtype=w_dtype)
+            # w = (w.to(dtype=torch.float64) @ self.R_pre.weight.to(dtype=torch.float64, device=w_device)).to(dtype=w_dtype) 
             w = w.view(w.shape[0], num_blocks * self.R_pre.weight.shape[0])
 
         if self.rotation_pos in ["post", "around"]:
@@ -47,16 +48,16 @@ class RotationQuantLinear(nn.Module):
             w_device = w.device
             w = w.T
             w = w.view(w.shape[0], num_blocks, self.R_post.weight.shape[0])
-            # w = (w.to(self.R_post.weight.dtype) @ self.R_post.weight.to(device=w_device)).to(dtype=w_dtype)
-            w = (w.to(dtype=torch.float64) @ self.R_post.weight.to(dtype=torch.float64, device=w_device)).to(dtype=w_dtype)
+            w = (w.to(self.R_post.weight.dtype) @ self.R_post.weight.to(device=w_device)).to(dtype=w_dtype)
+            # w = (w.to(dtype=torch.float64) @ self.R_post.weight.to(dtype=torch.float64, device=w_device)).to(dtype=w_dtype)
             w = w.view(w.shape[0], num_blocks * self.R_post.weight.shape[0])
             w = w.T
             if b is not None:
                 assert b.shape[0] % self.R_post.weight.shape[0] == 0, "Output dim(bias) should be multiple of R_post dim"
                 b_dtype = b.dtype
                 b_device = b.device
-                # b = (b.to(self.R_post.weight.dtype).view(num_blocks, -1) @ self.R_post.weight.to(device=b_device)).to(dtype=b_dtype)
-                b = (b.to(dtype=torch.float64).view(num_blocks, -1) @ self.R_post.weight.to(dtype=torch.float64, device=b_device)).to(dtype=b_dtype)
+                b = (b.to(self.R_post.weight.dtype).view(num_blocks, -1) @ self.R_post.weight.to(device=b_device)).to(dtype=b_dtype)
+                # b = (b.to(dtype=torch.float64).view(num_blocks, -1) @ self.R_post.weight.to(dtype=torch.float64, device=b_device)).to(dtype=b_dtype)
                 b = b.view(-1)
 
         x_q, w_q, b_q = self.allQuant(x, w, b)  # FakeQuant
@@ -108,6 +109,6 @@ class RotationEmbedding(nn.Module):
             assert embeds.shape[-1] == self.R_post.weight.shape[0], "R should be same size as dim of output activation"
             embeds_dtype = embeds.dtype
             embeds_device = embeds.device
-            # embeds = (embeds.to(dtype=self.R_post.weight.dtype) @ self.R_post.weight.to(device=embeds_device)).to(dtype=embeds_dtype)
-            embeds = (embeds.to(dtype=torch.float64) @ self.R_post.weight.to(dtype=torch.float64, device=embeds_device)).to(dtype=embeds_dtype)
+            embeds = (embeds.to(dtype=self.R_post.weight.dtype) @ self.R_post.weight.to(device=embeds_device)).to(dtype=embeds_dtype)
+            # embeds = (embeds.to(dtype=torch.float64) @ self.R_post.weight.to(dtype=torch.float64, device=embeds_device)).to(dtype=embeds_dtype)
         return embeds

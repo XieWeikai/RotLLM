@@ -29,5 +29,5 @@ CUDA_VISIBLE_DEVICES=6 python -m evaluator.ptq \
 --v_asym \
 --k_groupsize 128 \
 --v_groupsize 128 \
---optimized_rotation_path "/data/zjh/R_bs_8.bin" \
+--optimized_rotation_path "/data/zjh/R_yourname.bin" \
 

@@ -53,7 +53,11 @@ class FakeQuantizer(nn.Module):
                     self.zero_point = nn.Parameter(self.zero_point) if self.zero_point is not None else None
                 input_q = input
             else:
+                # print("self.scale:", self.scale.dtype)
+                # print("self.zero_point:", self.zero_point.dtype)
+                # print("input:", input.dtype)
                 input_q = StaticLearnableFakeQuantizeFunction.apply(input, self.scale, self.zero_point, self.qmin, self.qmax)
+                # print("input_q:", input_q.dtype)
         elif self.config.mode == 'dynamic': # Only Support per-channel and per-group quantizer
             input_type = input.dtype
             self.qmin, self.qmax = compute_n_bits_min_max(self.config)

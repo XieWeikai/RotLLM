@@ -97,13 +97,13 @@ def rotate_embedding(module: nn.Embedding, R_pre, R_post, rotation_pos):
 def rotate_model(model, ptq_args, R4):
     assert ptq_args.optimized_rotation_path is not None, "We must give the optimized_rotation_path in the command line."
     R_path = ptq_args.optimized_rotation_path
-    R1 = torch.load(R_path)["model.embed_tokens.R_post"].cuda().to(torch.float64)
+    R1 = torch.load(R_path)["model.embed_tokens.R_post"].cuda().to(torch.float32)
   
     layers = [layer for layer in model.model.layers]
     R2 = []  
     for idx, layer in enumerate(layers):
         key = f"model.layers.{idx}.self_attn.v_proj.R_post"
-        R_post = torch.load(R_path)[key].cuda().to(torch.float64)
+        R_post = torch.load(R_path)[key].cuda().to(torch.float32)
         R2.append(R_post)
 
     num_layers = model.config.num_hidden_layers

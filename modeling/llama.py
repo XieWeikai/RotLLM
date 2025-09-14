@@ -36,14 +36,14 @@ class LlamaMLPWithR4(nn.Module):
         gated_activation = self.act_fn(self.gate_proj(x)) * self.up_proj(x)
         gated_activation_dtype = gated_activation.dtype
         gated_activation_device = gated_activation.device
-        # down_proj = self.down_proj((gated_activation.to(dtype = self.R4.weight.dtype) @ self.R4.weight.to(gated_activation_device)).to(dtype = gated_activation_dtype))
+        down_proj = self.down_proj((gated_activation.to(dtype = self.R4.weight.dtype) @ self.R4.weight.to(gated_activation_device)).to(dtype = gated_activation_dtype))
         
         
-        assert gated_activation.shape[-1] == self.intermediate_size, f"Expected last dim {self.intermediate_size}, but got {gated_activation.shape[-1]}"
-        had_K, K = get_hadK(self.intermediate_size)
+        # assert gated_activation.shape[-1] == self.intermediate_size, f"Expected last dim {self.intermediate_size}, but got {gated_activation.shape[-1]}"
+        # had_K, K = get_hadK(self.intermediate_size)
 
-        gated_activation = matmul_hadU_cuda(gated_activation, had_K, K).to(dtype = gated_activation_dtype)
-        down_proj = self.down_proj(gated_activation)
+        # gated_activation = matmul_hadU_cuda(gated_activation, had_K, K).to(dtype = gated_activation_dtype)
+        # down_proj = self.down_proj(gated_activation)
 
         return down_proj
 
@@ -138,11 +138,11 @@ class LlamaAttentionWithR3(nn.Module):
         k_type = key_states.dtype
         q_device = query_states.device
         k_device = key_states.device
-        # query_states = query_states.to(dtype = self.R3.weight.dtype) @ self.R3.weight.to(device=q_device)
-        # key_states = key_states.to(dtype = self.R3.weight.dtype) @ self.R3.weight.to(device=k_device)
+        query_states = query_states.to(dtype = self.R3.weight.dtype) @ self.R3.weight.to(device=q_device)
+        key_states = key_states.to(dtype = self.R3.weight.dtype) @ self.R3.weight.to(device=k_device)
 
-        query_states = hadamard_transform(query_states.float()) / math.sqrt(query_states.shape[-1])
-        key_states = hadamard_transform(key_states.float()) / math.sqrt(key_states.shape[-1])
+        # query_states = hadamard_transform(query_states.float()) / math.sqrt(query_states.shape[-1])
+        # key_states = hadamard_transform(key_states.float()) / math.sqrt(key_states.shape[-1])
 
 
         query_states = query_states.to(dtype=q_type)

@@ -16,6 +16,7 @@ from .rtn import rtn_fwrd
 from .gptq import gptq_fwrd
 from utils.data_utils import get_wikitext2
 from train.train_parameter import NoLearnRotateModule
+from .static_rtn import static_rtn_fwrd
 
 def set_special_quantization_configuration(model, ptq_args):
     subset = collect_fakequant_configs(model)
@@ -48,7 +49,7 @@ def set_special_quantization_configuration(model, ptq_args):
     return model 
 
 
-def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, model_args):
+def prepare_model(model, dataset, batch, quant_configs: AllQuantizeConfigs, ptq_args, model_args):
     device = model.device
 
     # untie embedding and lm_head
@@ -67,10 +68,10 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
 
     # TODO: 保存模型的时候如何处理
     # Generate online rotation matrix
-    R3 = [NoLearnRotateModule(get_orthogonal_matrix(head_dim, mode="hadamard", device=device).to(dtype=torch.float64)) for _ in range(num_layers)]
-    R4 = [NoLearnRotateModule(get_orthogonal_matrix(hidden_dim, mode="hadamard", device=device).to(dtype=torch.float64)) for _ in range(num_layers)]  
+    R3 = [NoLearnRotateModule(get_orthogonal_matrix(head_dim, mode="hadamard", device=device).to(dtype=torch.float32)) for _ in range(num_layers)]
+    R4 = [NoLearnRotateModule(get_orthogonal_matrix(hidden_dim, mode="hadamard", device=device).to(dtype=torch.float32)) for _ in range(num_layers)]  
 
-    rotate_down_proj_weights(model)
+    # rotate_down_proj_weights(model)
 
     # Add online rotation matrices R3 and R4, but do not add the quantizer for Key and Value; 
     # wait to add this quantizer after GPTQ quantizes the weights.
@@ -93,25 +94,25 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
     rotate_model(model, ptq_args, [module.weight for module in R4])
 
     # Complete the calibration of GPTQ quantization, simulate the quantization of weights, and truly update the weights
-    if ptq_args.w_rtn:
-        # weight(RTN)
-        rtn_fwrd(model, quant_configs.weight)
-    else:
-        # weight(GPTQ) 
-        trainloader = get_wikitext2(
-            dataset=dataset,
-            nsamples=ptq_args.nsamples,
-            seed=ptq_args.seed,
-            model=model_args.input_model,
-            seqlen=2048,
-            eval_mode=False,
-        )
-        # quantize other layers with gptq
-        # gptq_fwrd(model, trainloader, "cuda", ptq_args)
-        gptq_fwrd(model, trainloader, quant_configs.weight)
+    # if ptq_args.w_rtn:
+    #     # weight(RTN)
+    #     rtn_fwrd(model, quant_configs.weight)
+    # else:
+    #     # weight(GPTQ) 
+    #     trainloader = get_wikitext2(
+    #         dataset=dataset,
+    #         nsamples=ptq_args.nsamples,
+    #         seed=ptq_args.seed,
+    #         model=model_args.input_model,
+    #         seqlen=2048,
+    #         eval_mode=False,
+    #     )
+    #     # quantize other layers with gptq
+    #     # gptq_fwrd(model, trainloader, "cuda", ptq_args)
+    #     gptq_fwrd(model, trainloader, quant_configs.weight)
 
     # Add quantizer for Key and Value
-    value_kv_quantizers(model)
+    # value_kv_quantizers(model)
 
     # Add all the quantizers, replacing the linear layer with RotationQuantLinear that does not contain rotation matrices
     # (with the parameter rotation_map set to None)
@@ -122,6 +123,25 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
 
     # Adjust the settings of the quantizer for the special layer, change the config, 
     # and set the weight config to 16 bits (i.e., not quantized, since it has already been quantized previously).
-    model = set_special_quantization_configuration(model, ptq_args)
+    # model = set_special_quantization_configuration(model, ptq_args)
+
+    # per-tensor: 13922.97
+    # per-channel: 44.09
+    static_rtn_fwrd(model, batch, ptq_args)
+
+    from train.prepare_model import collect_fakequant_configs
+    import json
+    fq_dict = collect_fakequant_configs(model)
+    filepath = "./fakequant_configs.jsonl"
+    with open(filepath, "w", encoding="utf-8") as f:
+        for name, config in fq_dict.items():
+            # 转成可序列化的 dict
+            cfg_dict = {k: (v if isinstance(v, (int, float, str, bool, type(None))) else str(v))
+                        for k, v in config.__dict__.items()}
+            # 加上名字
+            record = {"name": name, "config": cfg_dict}
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    print(f"[INFO] FakeQuantizer configs saved to {filepath}")
 
     return model

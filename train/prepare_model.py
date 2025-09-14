@@ -28,6 +28,23 @@ def untie_word_embeddings(model):
         # model.lm_head.weight.data = model.model.embed_tokens.weight.data.clone()
 
 
+        # print(id(model.model.embed_tokens.weight))
+        # print(model.model.embed_tokens.weight.data_ptr())
+        # print(model.model.embed_tokens.weight.storage().data_ptr())
+
+        # print(id(model.model.embed_tokens.weight.data))
+        # print(model.model.embed_tokens.weight.data.data_ptr())
+        # print(model.model.embed_tokens.weight.data.storage().data_ptr())
+
+        # print(id(model.lm_head.weight))
+        # print(model.lm_head.weight.data_ptr())
+        # print(model.lm_head.weight.storage().data_ptr())
+
+        # print(id(model.lm_head.weight.data))
+        # print(model.lm_head.weight.data.data_ptr())
+        # print(model.lm_head.weight.data.storage().data_ptr())
+
+
 def build_rotation_map(
         num_layers, 
         R1: Optional[LearnRotateModule] = None, 
@@ -85,16 +102,16 @@ def build_rotation_map(
             None,
             "pre"
         )
-        # rotation_map[f"model.layers.{i}.mlp.down_proj"] = (
-        #     R4[i],
-        #     R1, 
-        #     "around"
-        # )
         rotation_map[f"model.layers.{i}.mlp.down_proj"] = (
-            None,
+            R4[i],
             R1, 
-            "post"
+            "around"
         )
+        # rotation_map[f"model.layers.{i}.mlp.down_proj"] = (
+        #     None,
+        #     R1, 
+        #     "post"
+        # )
 
     return rotation_map
 
@@ -250,7 +267,7 @@ def set_special_quantization_configuration(model, ptq_args):
 
 def prepare_model(model, batch: torch.Tensor, quant_configs: AllQuantizeConfigs, ptq_args):
     device = model.device
-    # model.eval()
+    model.eval()
 
     # untie embedding and lm_head
     untie_word_embeddings(model)
@@ -278,7 +295,7 @@ def prepare_model(model, batch: torch.Tensor, quant_configs: AllQuantizeConfigs,
 
 
     # Add the mergeable rotation matrix R4 on down_proj
-    rotate_down_proj_weights(model)
+    # rotate_down_proj_weights(model)
 
     # Add online rotation matrix R3 and R4
     if model.config.model_type == "llama": 

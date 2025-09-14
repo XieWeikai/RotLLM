@@ -63,7 +63,7 @@ def train() -> None:
 
     # Prepare the calibration set for static quantization, used to initialize scale and zero_point
     num_samples = quant_configs.activation.need_sample_for_static_init
-    samples = [train_data[i + 10]["input_ids"] for i in range(num_samples)]
+    samples = [train_data[i + 20]["input_ids"] for i in range(num_samples)]
     batch = torch.tensor(samples).to(device=model_orig.device)
 
     # Prepare the trainable model and set parameters for training.
@@ -80,16 +80,16 @@ def train() -> None:
         log.info("Start to train...")
     
     # Applicable to RotLLM
-    # optimizer = SGDG(
-    #     [
-    #         {"params": R_trainable_parameters, "lr": training_args.learning_rate, "stiefel": True},
-    #         {"params": q_trainable_parameters, "lr": 0.0001}
-    #     ],
-    #     lr=training_args.learning_rate
-    # )
+    optimizer = SGDG(
+        [
+            {"params": R_trainable_parameters, "lr": training_args.learning_rate, "stiefel": True},
+            {"params": q_trainable_parameters, "lr": 0.0001}
+        ],
+        lr=training_args.learning_rate
+    )
 
     # Applicable to SpinQuant
-    optimizer = SGDG(R_trainable_parameters, lr=training_args.learning_rate, stiefel=True)
+    # optimizer = SGDG(R_trainable_parameters, lr=training_args.learning_rate, stiefel=True)
 
     MyTrainer = Trainer
 

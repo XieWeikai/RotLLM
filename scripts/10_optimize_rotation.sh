@@ -15,7 +15,7 @@
 export HF_ENDPOINT=https://hf-mirror.com
 CUDA_VISIBLE_DEVICES=2,3,4,5 torchrun --nnodes=1 --nproc_per_node=4 -m train.train \
 --input_model $1  \
---output_rotation_path "/data/zjh/R_yourname.bin" \
+--output_rotation_path "/data/zjh/R_yourname_test.bin" \
 --output_dir "/data/zjh/outputs" \
 --logging_dir "/data/zjh/logs" \
 --model_max_length 2048 \

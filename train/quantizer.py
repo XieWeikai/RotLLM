@@ -159,11 +159,11 @@ def compute_qparams_static(config, input_max, input_min, min_val, max_val) -> Tu
     Static compute scale and zero point for quantization.
     """
     if config.is_symmetric:
-        input_max = torch.maximum(torch.abs(input_min), torch.abs(input_max))
+        input_max = torch.maximum(torch.abs(input_min), torch.abs(input_max)).clamp(min=1e-5)
         scale = input_max / max_val
         zero_point = None
     else:
-        scale = (input_max - input_min) / (max_val - min_val)
+        scale = (input_max - input_min).clamp(min=1e-5) / (max_val - min_val)
         zero_point = torch.round(min_val - input_min / scale)
         
     scale = scale.to(torch.float32)
@@ -191,14 +191,15 @@ class StaticLearnableFakeQuantizeFunction(torch.autograd.Function):
     """
     @staticmethod
     def forward(ctx, input, scale, zero_point, min_val, max_val):
+        input_type = input.dtype
+        input = input.to(scale.dtype)
         # 1. scale正约束
-        # constrained_scale = F.softplus(scale) + 1e-6
-        # constrained_scale = scale
-        constrained_scale = scale.to(input.dtype).clamp(min=1e-6)
+        # constrained_scale = F.softplus(scale.to(input.dtype)) + 1e-6
+        constrained_scale = scale.clamp(min=1e-6)
         
         # 2. zero_point整数约束（round + clamp）
         if zero_point is not None:
-            constrained_z = zero_point.to(input.dtype).round().clamp(min_val, max_val)
+            constrained_z = zero_point.round().clamp(min_val, max_val)
         else:
             constrained_z = None
         
@@ -213,6 +214,8 @@ class StaticLearnableFakeQuantizeFunction(torch.autograd.Function):
             quantized = torch.clamp(rounded, min_val, max_val)
             dequantized = quantized * constrained_scale
         
+        input = input.to(input_type)
+        dequantized = dequantized.to(input_type)
         # 保存用于 backward 的参数
         ctx.save_for_backward(input, scale, zero_point)
         ctx.min_val = min_val
@@ -228,9 +231,14 @@ class StaticLearnableFakeQuantizeFunction(torch.autograd.Function):
 
         # 重新计算没有保存的中间激活
         # ====================================================================================
-        constrained_scale = scale.to(input.dtype).clamp(min=1e-6)
+        input_type = input.dtype
+        input = input.to(scale.dtype)
+
+        constrained_scale = scale.clamp(min=1e-6)
+        # constrained_scale = F.softplus(scale.to(input.dtype)) + 1e-6
+
         if zero_point is not None:
-            constrained_z = zero_point.to(input.dtype).round().clamp(min_val, max_val)
+            constrained_z = zero_point.round().clamp(min_val, max_val)
         else:
             constrained_z = None
         scaled_input = input / constrained_scale
@@ -244,7 +252,7 @@ class StaticLearnableFakeQuantizeFunction(torch.autograd.Function):
         # ====================================================================================
 
         # 1. 输入梯度（STE）
-        grad_input = grad_output / constrained_scale
+        grad_input = grad_output
         
         # 2. scale梯度
         if zero_point is not None:
@@ -293,7 +301,107 @@ class StaticLearnableFakeQuantizeFunction(torch.autograd.Function):
             grad_scale = grad_scale.sum(dim=-1, keepdim=True)
             grad_z = grad_z.sum(dim=-1, keepdim=True) if zero_point is not None else None
 
+        # print("grad_input:", grad_input.dtype)
+        # print("grad_scale:", grad_scale.dtype)
+        # print("grad_z:", grad_z.dtype)
+        assert torch.isfinite(grad_scale).all(), "grad_scale has NaN or Inf"
+        assert torch.isfinite(grad_z).all(), "grad_z has NaN or Inf"
+        assert torch.isfinite(grad_input).all(), "grad_input has NaN or Inf"
         return grad_input, grad_scale, grad_z, None, None    
+
+
+# class StaticLearnableFakeQuantizeFunction(torch.autograd.Function):
+#     """
+#     Static Quantization(Learnable scale and zero_point):
+#         1. scale的正约束（使用clamp）
+#         2. zero_point的整数约束（forward时round）
+#         3. 梯度裁剪（backward时限制梯度范围）
+#     """
+#     @staticmethod
+#     def forward(ctx, input, scale, zero_point, min_val, max_val):
+#         input_type = input.dtype
+#         input = input.to(scale.dtype)
+        
+#         if zero_point is not None:
+#             quantized = torch.clamp(input / scale + zero_point, min_val, max_val)
+#             dequantized = (quantized - zero_point) * scale
+#         else:
+#             quantized = torch.clamp(input / scale, min_val, max_val)
+#             dequantized = quantized * scale
+        
+#         input = input.to(input_type)
+#         dequantized = dequantized.to(input_type)
+#         # 保存用于 backward 的参数
+#         ctx.save_for_backward(input, scale, zero_point)
+#         ctx.min_val = min_val
+#         ctx.max_val = max_val
+        
+#         return dequantized
+
+#     @staticmethod
+#     def backward(ctx, grad_output):
+#         input, scale, zero_point = ctx.saved_tensors
+#         min_val = ctx.min_val
+#         max_val = ctx.max_val
+
+#         # 1. 输入梯度（STE）
+#         grad_input = grad_output / scale
+        
+#         # 2. scale梯度
+#         if zero_point is not None:
+#             # mask 对 clamp 的梯度进行截断
+#             mask = (rounded + constrained_z >= min_val) & (rounded + constrained_z <= max_val)
+#             term1 = (quantized - constrained_z)
+#             term2 = (-input / constrained_scale) * mask.float()
+#             raw_grad_scale = (term1 + term2) * grad_output
+#         else:
+#             # mask 对 clamp 的梯度进行截断
+#             mask = (rounded >= min_val) & (rounded <= max_val)
+#             term1 = quantized
+#             term2 = (-input / constrained_scale) * mask.float()
+#             raw_grad_scale = (term1 + term2) * grad_output
+        
+#         # softplus的导数：d(softplus(x))/dx = sigmoid(x)
+#         # softplus_deriv = torch.sigmoid(scale)
+#         # grad_scale = raw_grad_scale * softplus_deriv
+
+#         grad_scale = raw_grad_scale
+        
+#         # 3. zero_point梯度（如果存在）
+#         if zero_point is not None:
+#             mask = (rounded + constrained_z >= min_val) & (rounded + constrained_z <= max_val)
+#             raw_grad_z = (mask.float() - 1) * grad_output * constrained_scale
+            
+#             # 由于forward时做了round操作，这里梯度需要特殊处理
+#             # 使用STE近似：∂round(z)/∂z ≈ 1
+#             grad_z = raw_grad_z
+#         else:
+#             grad_z = None
+        
+#         # 梯度裁剪（防止爆炸）
+#         max_grad_value = 1.0
+#         if zero_point is not None:
+#             grad_z = torch.clamp(grad_z, -max_grad_value, max_grad_value)
+#         grad_scale = torch.clamp(grad_scale, -max_grad_value, max_grad_value)
+        
+#         # 聚合梯度（保持原始维度）
+#         if scale.numel() == 1:
+#             # per-tensor
+#             grad_scale = grad_scale.sum().unsqueeze(0)
+#             grad_z = grad_z.sum().unsqueeze(0) if zero_point is not None else None
+#         else:
+#             # per-channel: 
+#             grad_scale = grad_scale.sum(dim=-1, keepdim=True)
+#             grad_z = grad_z.sum(dim=-1, keepdim=True) if zero_point is not None else None
+
+#         # print("grad_input:", grad_input.dtype)
+#         # print("grad_scale:", grad_scale.dtype)
+#         # print("grad_z:", grad_z.dtype)
+#         assert torch.isfinite(grad_scale).all(), "grad_scale has NaN or Inf"
+#         assert torch.isfinite(grad_z).all(), "grad_z has NaN or Inf"
+#         assert torch.isfinite(grad_input).all(), "grad_input has NaN or Inf"
+#         return grad_input, grad_scale, grad_z, None, None 
+    
 
 
 class DynamicUnLearnableFakeQuantizeFunction(torch.autograd.Function):
