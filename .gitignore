@@ -7,3 +7,4 @@ __pycache__/
 RotLLM.egg-info/
 *test*.py
 *delete*.py
+txt/
