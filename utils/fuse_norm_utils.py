@@ -28,10 +28,10 @@ def fuse_ln_linear(
 
 
 def fuse_layer_norms(model):
-    for W in [model.model.embed_tokens]:            # TODO: 存疑，应该会破坏旋转不变性
-        # print("==================")
-        W_ = W.weight.data.double()
-        W.weight.data = (W_ - W_.mean(dim=-1, keepdim=True)).to(W.weight.data.dtype)
+    # for W in [model.model.embed_tokens]:            # TODO: 存疑，应该会破坏旋转不变性
+    #     # print("==================")
+    #     W_ = W.weight.data.double()
+    #     W.weight.data = (W_ - W_.mean(dim=-1, keepdim=True)).to(W.weight.data.dtype)
 
     layers = [layer for layer in model.model.layers]
 

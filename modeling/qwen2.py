@@ -34,13 +34,13 @@ class Qwen2MLPWithR4(nn.Module):
         gated_activation = self.act_fn(self.gate_proj(x)) * self.up_proj(x)
         gated_activation_dtype = gated_activation.dtype
         gated_activation_device = gated_activation.device
-        # down_proj = self.down_proj((gated_activation.to(dtype = self.R4.weight.dtype) @ self.R4.weight.to(gated_activation_device)).to(dtype = gated_activation_dtype))
+        down_proj = self.down_proj((gated_activation.to(dtype = self.R4.weight.dtype) @ self.R4.weight.to(gated_activation_device)).to(dtype = gated_activation_dtype))
         
-        assert gated_activation.shape[-1] == self.intermediate_size, f"Expected last dim {self.intermediate_size}, but got {gated_activation.shape[-1]}"
-        had_K, K = get_hadK(self.intermediate_size)
+        # assert gated_activation.shape[-1] == self.intermediate_size, f"Expected last dim {self.intermediate_size}, but got {gated_activation.shape[-1]}"
+        # had_K, K = get_hadK(self.intermediate_size)
 
-        gated_activation = matmul_hadU_cuda(gated_activation, had_K, K).to(dtype = gated_activation_dtype)
-        down_proj = self.down_proj(gated_activation)
+        # gated_activation = matmul_hadU_cuda(gated_activation, had_K, K).to(dtype = gated_activation_dtype)
+        # down_proj = self.down_proj(gated_activation)
         
         return down_proj
 
@@ -134,15 +134,19 @@ class Qwen2AttentionWithR3(nn.Module):
         k_type = key_states.dtype
         q_device = query_states.device
         k_device = key_states.device
-        # query_states = query_states.to(dtype = self.R3.weight.dtype) @ self.R3.weight.to(device=q_device)
-        # key_states = key_states.to(dtype = self.R3.weight.dtype) @ self.R3.weight.to(device=k_device)
+        query_states = query_states.to(dtype = self.R3.weight.dtype) @ self.R3.weight.to(device=q_device)
+        key_states = key_states.to(dtype = self.R3.weight.dtype) @ self.R3.weight.to(device=k_device)
 
-        query_states = hadamard_transform(query_states.float()) / math.sqrt(query_states.shape[-1])
-        key_states = hadamard_transform(key_states.float()) / math.sqrt(key_states.shape[-1])
+        # query_states = hadamard_transform(query_states.float()) / math.sqrt(query_states.shape[-1])
+        # key_states = hadamard_transform(key_states.float()) / math.sqrt(key_states.shape[-1])
 
         query_states = query_states.to(dtype=q_type)
         key_states = key_states.to(dtype=k_type)
 
+        # Transpose: To unify the second dimension of the input parameter scale of StaticLearnableFakeQuantizeFunction as seqlen
+        # In order to uniformly perform truncation on this dimension in StaticLearnableFakeQuantizeFunction
+        key_states = key_states.transpose(1, 2)
+        value_states = value_states.transpose(1, 2)
         # Key:
         if self.kQuant is not None:
             key_states = self.kQuant(key_states)
@@ -150,6 +154,10 @@ class Qwen2AttentionWithR3(nn.Module):
         # Value:
         if self.vQuant is not None:
             value_states = self.vQuant(value_states)
+
+        # Transpose again: to prevent affecting subsequent calculations
+        key_states = key_states.transpose(1, 2)
+        value_states = value_states.transpose(1, 2)
 
         if past_key_value is not None:
             cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}  # Specific to RoPE models
@@ -201,14 +209,13 @@ def get_parent_module(model, module_name):
         parent = getattr(parent, p)
     return parent, parts[-1]
 
-def apply_R3R4_change_qwen2_model(model, R3_list, R4_list, k_Quant_config: QuantizeConfig, v_Quant_config: QuantizeConfig, to_quant: bool = True):
+def apply_R3R4_change_model(model, R3_list, R4_list, k_Quant_config: QuantizeConfig, v_Quant_config: QuantizeConfig, to_quant: bool = True):
     """
         Replace Qwen2MLP with Qwen2MLPWithR4
         Replace Qwen2Attention with Qwen2AttentionWithR3
     """
     attn_layer_idx = 0  # Record which layer of Qwen2Attention it is.
     mlp_layer_idx = 0   # Record which layer of Qwen2MLP it is.
-
     for name, module in model.named_modules():
         if isinstance(module, Qwen2MLP):
             parent, attr_name = get_parent_module(model, name)
@@ -217,7 +224,6 @@ def apply_R3R4_change_qwen2_model(model, R3_list, R4_list, k_Quant_config: Quant
             R4_layer = R4_list[mlp_layer_idx]
             setattr(parent, attr_name, Qwen2MLPWithR4(module, R4_layer))
             mlp_layer_idx += 1
-
         elif isinstance(module, Qwen2Attention):
             parent, attr_name = get_parent_module(model, name)
 

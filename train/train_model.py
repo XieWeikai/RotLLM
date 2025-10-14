@@ -25,7 +25,6 @@ class RotationQuantLinear(nn.Module):
 
 
     def forward(self, x):
-        assert x.dtype == torch.bfloat16, "haha"
         w = self.linear.weight
         b = self.linear.bias if self.linear.bias is not None else None
 
@@ -36,6 +35,7 @@ class RotationQuantLinear(nn.Module):
             w_dtype = w.dtype
             w_device = w.device
             w = w.view(w.shape[0], num_blocks, self.R_pre.weight.shape[0])
+            # w = self.R_pre(w)
             w = (w.to(self.R_pre.weight.dtype) @ self.R_pre.weight.to(device=w_device)).to(dtype=w_dtype)
             # w = (w.to(dtype=torch.float64) @ self.R_pre.weight.to(dtype=torch.float64, device=w_device)).to(dtype=w_dtype) 
             w = w.view(w.shape[0], num_blocks * self.R_pre.weight.shape[0])
@@ -48,6 +48,7 @@ class RotationQuantLinear(nn.Module):
             w_device = w.device
             w = w.T
             w = w.view(w.shape[0], num_blocks, self.R_post.weight.shape[0])
+            # w = self.R_post(w)
             w = (w.to(self.R_post.weight.dtype) @ self.R_post.weight.to(device=w_device)).to(dtype=w_dtype)
             # w = (w.to(dtype=torch.float64) @ self.R_post.weight.to(dtype=torch.float64, device=w_device)).to(dtype=w_dtype)
             w = w.view(w.shape[0], num_blocks * self.R_post.weight.shape[0])
@@ -56,6 +57,7 @@ class RotationQuantLinear(nn.Module):
                 assert b.shape[0] % self.R_post.weight.shape[0] == 0, "Output dim(bias) should be multiple of R_post dim"
                 b_dtype = b.dtype
                 b_device = b.device
+                # b = self.R_post(b.view(num_blocks, -1))
                 b = (b.to(self.R_post.weight.dtype).view(num_blocks, -1) @ self.R_post.weight.to(device=b_device)).to(dtype=b_dtype)
                 # b = (b.to(dtype=torch.float64).view(num_blocks, -1) @ self.R_post.weight.to(dtype=torch.float64, device=b_device)).to(dtype=b_dtype)
                 b = b.view(-1)
@@ -100,15 +102,23 @@ class RotationEmbedding(nn.Module):
         input_ids: LongTensor [batch_size, seq_len]
         return: FloatTensor [batch_size, seq_len, hidden_size]
         """
-        # Get the original embedding
-        embeds = self.embedding(input_ids)  # [B, L, D]
-
+        w = self.embedding.weight
         assert self.rotation_pos not in ["pre", "around"], "An error occurred in the rotation position of the embedding layer."
             
         if self.rotation_pos in ["post"]:
-            assert embeds.shape[-1] == self.R_post.weight.shape[0], "R should be same size as dim of output activation"
-            embeds_dtype = embeds.dtype
-            embeds_device = embeds.device
-            embeds = (embeds.to(dtype=self.R_post.weight.dtype) @ self.R_post.weight.to(device=embeds_device)).to(dtype=embeds_dtype)
-            # embeds = (embeds.to(dtype=torch.float64) @ self.R_post.weight.to(dtype=torch.float64, device=embeds_device)).to(dtype=embeds_dtype)
+            assert w.shape[-1] == self.R_post.weight.shape[0], "R should be same size as dim of output activation"
+            w_dtype = w.dtype
+            w_device = w.device
+            # w = self.R_post(w)
+            w = (w.to(dtype=self.R_post.weight.dtype) @ self.R_post.weight.to(device=w_device)).to(dtype=w_dtype)
+            # w = (w.to(dtype=torch.float64) @ self.R_post.weight.to(dtype=torch.float64, device=w_device)).to(dtype=w_dtype)
+
+        embeds = F.embedding(input_ids, w)  # [B, L, D]
+
+        
         return embeds
+
+
+
+
+

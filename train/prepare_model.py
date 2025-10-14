@@ -28,23 +28,6 @@ def untie_word_embeddings(model):
         # model.lm_head.weight.data = model.model.embed_tokens.weight.data.clone()
 
 
-        # print(id(model.model.embed_tokens.weight))
-        # print(model.model.embed_tokens.weight.data_ptr())
-        # print(model.model.embed_tokens.weight.storage().data_ptr())
-
-        # print(id(model.model.embed_tokens.weight.data))
-        # print(model.model.embed_tokens.weight.data.data_ptr())
-        # print(model.model.embed_tokens.weight.data.storage().data_ptr())
-
-        # print(id(model.lm_head.weight))
-        # print(model.lm_head.weight.data_ptr())
-        # print(model.lm_head.weight.storage().data_ptr())
-
-        # print(id(model.lm_head.weight.data))
-        # print(model.lm_head.weight.data.data_ptr())
-        # print(model.lm_head.weight.data.storage().data_ptr())
-
-
 def build_rotation_map(
         num_layers, 
         R1: Optional[LearnRotateModule] = None, 
@@ -265,7 +248,7 @@ def set_special_quantization_configuration(model, ptq_args):
     return model 
 
 
-def prepare_model(model, batch: torch.Tensor, quant_configs: AllQuantizeConfigs, ptq_args):
+def prepare_model(model, quant_configs: AllQuantizeConfigs, ptq_args, batch: Optional[torch.Tensor] = None):
     device = model.device
     model.eval()
 
@@ -326,18 +309,18 @@ def prepare_model(model, batch: torch.Tensor, quant_configs: AllQuantizeConfigs,
         rotation_map=rotation_map
     )
 
+    # Adjust the settings of the quantizer for special layers, change the config.
+    model = set_special_quantization_configuration(model, ptq_args) 
+
     # Initialize all quantizers using the calibration set.
     if quant_configs.weight.mode == "static":
+        assert batch is not None, "We need to prepare the initial sample set required for static quantization."
         model.eval()
         with torch.no_grad(): 
-            print("bs:", batch.size(0))
             for i in tqdm(range(batch.size(0)), desc="Init scale and zero_point for static quant"):
                 sample = batch[i].unsqueeze(0)  # 保持 batch 维度
                 model(sample)
             print("Init scale and zero_point ok!")
-
-    # Adjust the settings of the quantizer for special layers, change the config.
-    model = set_special_quantization_configuration(model, ptq_args)    
 
 
     # Integration of trainable parameters

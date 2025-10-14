@@ -197,7 +197,7 @@ def gptq_fwrd(model, dataloader, wConfig: QuantizeConfig):
             inps[cache["i"]] = inp
             cache["i"] += 1
             cache["attention_mask"] = kwargs["attention_mask"]
-            cache["position_embeddings"] = kwargs["position_embeddings"]
+            cache["position_ids"] = kwargs["position_ids"]
             raise ValueError
 
     layers[0] = Catcher(layers[0])
@@ -210,7 +210,7 @@ def gptq_fwrd(model, dataloader, wConfig: QuantizeConfig):
 
     outs = torch.zeros_like(inps)
     attention_mask = cache["attention_mask"]
-    position_embeddings = cache["position_embeddings"]
+    position_ids = cache["position_ids"]
 
     quantizers = {}
     sequential = [
@@ -257,7 +257,7 @@ def gptq_fwrd(model, dataloader, wConfig: QuantizeConfig):
                 outs[j] = layer(
                     inps[j].unsqueeze(0),
                     attention_mask=attention_mask,
-                    position_embeddings=position_embeddings,
+                    position_ids=position_ids,
                 )[0]
             for h in handles:
                 h.remove()
@@ -276,7 +276,7 @@ def gptq_fwrd(model, dataloader, wConfig: QuantizeConfig):
             outs[j] = layer(
                 inps[j].unsqueeze(0),
                 attention_mask=attention_mask,
-                position_embeddings=position_embeddings,
+                position_ids=position_ids,
             )[0]
 
         del gptq

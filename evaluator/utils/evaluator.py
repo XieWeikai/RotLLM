@@ -46,7 +46,7 @@ def evaluator(model, testenc, seqlen, args):
             inps[cache["i"]] = inp
             cache["i"] += 1
             cache["attention_mask"] = kwargs["attention_mask"]
-            cache["position_embeddings"] = kwargs["position_embeddings"]
+            cache["position_ids"] = kwargs["position_ids"]
             raise ValueError
 
     layers[0] = Catcher(layers[0])
@@ -61,11 +61,13 @@ def evaluator(model, testenc, seqlen, args):
     layers[0] = layers[0].cpu()
 
     model.model.embed_tokens = model.model.embed_tokens.cpu()
-    position_embeddings = cache["position_embeddings"]
+    position_ids = cache["position_ids"]
 
     torch.cuda.empty_cache()
     outs = [0] * nbatches
     attention_mask = cache["attention_mask"]
+    attention_mask = attention_mask[:1]
+
 
     for i in tqdm(range(len(layers)), desc="(Eval) Layers"):
         layer = layers[i].to(dev)
@@ -75,7 +77,7 @@ def evaluator(model, testenc, seqlen, args):
                 inps[j],
                 attention_mask=attention_mask,
                 #  defined.
-                position_embeddings=position_embeddings,
+                position_ids=position_ids,
             )[0]
         layers[i] = layer.cpu()
         del layer

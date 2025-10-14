@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 import argparse
 import transformers
+import torch
 
 from train.config import AllQuantizeConfigs
 
@@ -43,6 +44,57 @@ def parser_gen():
     parser.add_argument(
         "--seed", type=int, default=0, help="Random Seed for HuggingFace and PyTorch"
     )
+    # Use for eval
+    parser.add_argument(
+        "--trainable_scale",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="""Valid only when mode="static". 
+        If true, it indicates that static quantization includes a trainable scale; 
+        If false, it indicates that dynamic quantization only trains R, and uses the static quantization to initialize the scale for evaluation.""",
+    )
+    parser.add_argument(
+        "--trainable_R",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="""Valid only when mode="static". 
+        If true, it indicates using the rotation matrix R optimized by training; 
+        If false, it indicates using the Hadamard matrix as the rotation matrix.""",
+    )
+    parser.add_argument(
+        "--task",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="""Decide whether to test all tasks. If true, test all task metrics; if false, only test PPL.""",
+    )
+
+    # Used for static quantization
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default="static",
+        help="Static quantization or Dynamic quatization",
+    )
+    parser.add_argument(
+        "--granularity",
+        type=str,
+        default="per-tensor",
+        help="Per-tensor or Per-channel",
+    )
+    parser.add_argument(
+        "--need_sample_for_static_init",
+        type=int,
+        default=0,
+        help="The number of samples required for static quantization to initialize activations and weights.",
+    )
+    parser.add_argument(
+        "--warmup_step",
+        type=int,
+        default=0,
+        help="The number of steps used to adjust the activated quantization parameters during the initial training phase.",
+    )
+
+    
 
     # Activation Quantization Arguments
     parser.add_argument(
@@ -59,9 +111,9 @@ def parser_gen():
         help="Groupsize for activation quantization. Note that this should be the same as w_groupsize",
     )
     parser.add_argument(
-        "--a_asym",
+        "--a_sym",
         action=argparse.BooleanOptionalAction,
-        default=False,
+        default=True,
         help="ASymmetric Activation quantization (default: False)",
     )
     parser.add_argument(
@@ -85,9 +137,9 @@ def parser_gen():
         help="Groupsize for weight quantization. Note that this should be the same as a_groupsize",
     )
     parser.add_argument(
-        "--w_asym",
+        "--w_sym",
         action=argparse.BooleanOptionalAction,
-        default=False,
+        default=True,
         help="ASymmetric weight quantization (default: False)",
     )
     parser.add_argument(
@@ -146,11 +198,15 @@ def parser_gen():
         help="""Number of bits for V-cache quantization.
                         Note that quantizing the V-cache does not need any other rotation""",    
     )
-    parser.add_argument("--v_groupsize", type=int, default=-1)
     parser.add_argument(
-        "--v_asym",
+        "--v_groupsize", 
+        type=int, 
+        default=-1,
+    )
+    parser.add_argument(
+        "--v_sym",
         action=argparse.BooleanOptionalAction,
-        default=False,
+        default=True,
         help="ASymmetric V-cache quantization",
     )
     parser.add_argument(
@@ -167,11 +223,15 @@ def parser_gen():
         help="""Number of bits for K-cache quantization.
                         Note that quantizing the K-cache needs another rotation for the keys/queries""",
     )
-    parser.add_argument("--k_groupsize", type=int, default=-1)
     parser.add_argument(
-        "--k_asym",
+        "--k_groupsize", 
+        type=int, 
+        default=-1,
+    )
+    parser.add_argument(
+        "--k_sym",
         action=argparse.BooleanOptionalAction,
-        default=False,
+        default=True,
         help="ASymmetric K-cache quantization",
     )
     parser.add_argument(
@@ -179,14 +239,6 @@ def parser_gen():
         type=float,
         default=1.0,
         help="Clip ratio for k-cache quantization. new_max = max * clip_ratio",
-    )
-
-    # Path
-    parser.add_argument(
-        "--optimized_rotation_path",
-        type=str,
-        default=None,
-        help="Load the optimized R1 and R2 from the specified path!",
     )
 
     args, unknown = parser.parse_known_args()
@@ -212,18 +264,27 @@ def process_args_ptq():
     all_qconfigs = AllQuantizeConfigs()
 
     # activation
+    all_qconfigs.activation.mode = getattr(ptq_args, "mode")
+    all_qconfigs.activation.granularity = getattr(ptq_args, "granularity")
+    all_qconfigs.activation.need_sample_for_static_init = getattr(ptq_args, "need_sample_for_static_init")
+    all_qconfigs.activation.warmup_step = torch.tensor(getattr(ptq_args, "warmup_step"))
+
     all_qconfigs.activation.num_bits = getattr(ptq_args, "a_bits")
-    all_qconfigs.activation.is_symmetric = not getattr(ptq_args, "a_asym")
+    all_qconfigs.activation.is_symmetric = getattr(ptq_args, "a_sym")
     all_qconfigs.activation.groupsize = getattr(ptq_args, "a_groupsize")
-    all_qconfigs.activation.clip = getattr(ptq_args, "a_clip_ratio")
+    all_qconfigs.activation.clip_ratio = getattr(ptq_args, "a_clip_ratio")
 
     all_qconfigs.activation.int8_down_proj = getattr(ptq_args, "int8_down_proj")
 
     # weight
+    all_qconfigs.weight.mode = getattr(ptq_args, "mode")
+    all_qconfigs.weight.granularity = getattr(ptq_args, "granularity")
+    all_qconfigs.weight.need_sample_for_static_init = getattr(ptq_args, "need_sample_for_static_init")
+
     all_qconfigs.weight.num_bits = getattr(ptq_args, "w_bits")
-    all_qconfigs.weight.is_symmetric = not getattr(ptq_args, "w_asym")
+    all_qconfigs.weight.is_symmetric = getattr(ptq_args, "w_sym")
     all_qconfigs.weight.groupsize = getattr(ptq_args, "w_groupsize") 
-    all_qconfigs.weight.clip = getattr(ptq_args, "w_clip_ratio")
+    all_qconfigs.weight.clip_ratio = getattr(ptq_args, "w_clip_ratio")
 
     all_qconfigs.weight.mse = getattr(ptq_args, "w_mse")
     all_qconfigs.weight.int8_down_proj = getattr(ptq_args, "int8_down_proj")
@@ -236,18 +297,28 @@ def process_args_ptq():
     all_qconfigs.bias.num_bits = 16
     all_qconfigs.bias.is_symmetric = False
     all_qconfigs.bias.groupsize = -1
-    all_qconfigs.bias.clip = 1.0
+    all_qconfigs.bias.clip_ratio = 1.0
 
     # key 
+    all_qconfigs.key.mode = getattr(ptq_args, "mode")
+    all_qconfigs.key.granularity = getattr(ptq_args, "granularity")
+    all_qconfigs.key.need_sample_for_static_init = getattr(ptq_args, "need_sample_for_static_init")
+    all_qconfigs.key.warmup_step = torch.tensor(getattr(ptq_args, "warmup_step"))
+
     all_qconfigs.key.num_bits = getattr(ptq_args, "k_bits")
-    all_qconfigs.key.is_symmetric = not getattr(ptq_args, "k_asym")
+    all_qconfigs.key.is_symmetric = getattr(ptq_args, "k_sym")
     all_qconfigs.key.groupsize = getattr(ptq_args, "k_groupsize")
-    all_qconfigs.key.clip = getattr(ptq_args, "k_clip_ratio")
+    all_qconfigs.key.clip_ratio = getattr(ptq_args, "k_clip_ratio")
 
     # value
+    all_qconfigs.value.mode = getattr(ptq_args, "mode")
+    all_qconfigs.value.granularity = getattr(ptq_args, "granularity")
+    all_qconfigs.value.need_sample_for_static_init = getattr(ptq_args, "need_sample_for_static_init")
+    all_qconfigs.value.warmup_step = torch.tensor(getattr(ptq_args, "warmup_step"))
+
     all_qconfigs.value.num_bits = getattr(ptq_args, "v_bits")
-    all_qconfigs.value.is_symmetric = not getattr(ptq_args, "v_asym")
+    all_qconfigs.value.is_symmetric = getattr(ptq_args, "v_sym")
     all_qconfigs.value.groupsize = getattr(ptq_args, "v_groupsize")
-    all_qconfigs.value.clip = getattr(ptq_args, "v_clip_ratio")
+    all_qconfigs.value.clip_ratio = getattr(ptq_args, "v_clip_ratio")
 
     return model_args, training_args, ptq_args, all_qconfigs

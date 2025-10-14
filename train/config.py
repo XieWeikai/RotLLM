@@ -1,4 +1,5 @@
 import dataclasses
+import torch
 
 @dataclasses.dataclass
 class QuantizeConfig:
@@ -7,11 +8,12 @@ class QuantizeConfig:
     """
     mode: str = 'static'               # 'dynamic'(Only support per-channel and per-group) or 'static' (Only support per-tensor and per-channel)
     granularity: str = 'per_channel'     # 'per_tensor' or 'per_channel' (When mode == static, granularity is effective.)
-    need_sample_for_static_init: int = 16
+    need_sample_for_static_init: int = 0
 
-    num_bits: int = 8
+    num_bits: int = 16
     is_symmetric: bool = False
     groupsize: int = -1
+    clip_ratio: float = 1.0
 
 
 @dataclasses.dataclass
@@ -19,8 +21,8 @@ class ActivationQuantizeConfig(QuantizeConfig):
     """
     Activation quantization config.
     """
-    clip_ratio: float = 1.0
     int8_down_proj: bool = False
+    warmup_step: torch.Tensor = torch.tensor(0)
     
 
 @dataclasses.dataclass
@@ -28,7 +30,6 @@ class WeightQuantizeConfig(QuantizeConfig):
     """
     Weight quantization config.
     """
-    clip_ratio: float = 1.0
     mse: bool = False           # 表示是否启动搜索模式
     norm: float = 2.4           # 范数
     grid: int = 100             # 表示搜索的粒度（搜索多少步）  
@@ -52,17 +53,17 @@ class BiasQuantizeConfig(QuantizeConfig):
 @dataclasses.dataclass
 class KeyQuantizeConfig(QuantizeConfig):
     """
-    Bias quantization config.
+    Key quantization config.
     """
-    clip_ratio: float = 1.0
+    warmup_step: torch.Tensor = torch.tensor(0)
 
 
 @dataclasses.dataclass
 class ValueQuantizeConfig(QuantizeConfig):
     """
-    Bias quantization config.
+    Value quantization config.
     """
-    clip_ratio: float = 1.0
+    warmup_step: torch.Tensor = torch.tensor(0)
 
 
 @dataclasses.dataclass

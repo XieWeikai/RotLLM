@@ -111,7 +111,6 @@ class LlamaAttentionWithR3(nn.Module):
         **kwargs,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         bsz, q_len, _ = hidden_states.size()
-
         
         query_states = self.q_proj(hidden_states)
         key_states = self.k_proj(hidden_states)
@@ -148,7 +147,10 @@ class LlamaAttentionWithR3(nn.Module):
         query_states = query_states.to(dtype=q_type)
         key_states = key_states.to(dtype=k_type)
         
-
+        # Transpose: To unify the second dimension of the input parameter scale of StaticLearnableFakeQuantizeFunction as seqlen
+        # In order to uniformly perform truncation on this dimension in StaticLearnableFakeQuantizeFunction
+        key_states = key_states.transpose(1, 2)
+        value_states = value_states.transpose(1, 2)
         # Key:
         if self.kQuant is not None:
             key_states = self.kQuant(key_states)
@@ -157,6 +159,9 @@ class LlamaAttentionWithR3(nn.Module):
         if self.vQuant is not None:
             value_states = self.vQuant(value_states)
 
+        # Transpose again: to prevent affecting subsequent calculations
+        key_states = key_states.transpose(1, 2)
+        value_states = value_states.transpose(1, 2)
 
         if past_key_value is not None:
             # sin and cos are specific to RoPE models; cache_position needed for the static cache

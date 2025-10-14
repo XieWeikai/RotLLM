@@ -1,9 +1,8 @@
 import os
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
-import torch.nn as nn
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from datasets import load_dataset
-from transformers import LlamaTokenizerFast, Trainer, default_data_collator
+from transformers import LlamaTokenizerFast, Qwen2TokenizerFast, Trainer, default_data_collator
 import datetime
 import torch.distributed as dist
 from logging import Logger
@@ -28,23 +27,31 @@ def train() -> None:
 
     device = "cuda"
     dtype = torch.bfloat16 if training_args.bf16 else torch.float16
+    # dtype = torch.float32
 
-    # TODO: (Fast)tokenizer params    
-    # tokenizer = AutoTokenizer.from_pretrained(
+    # tokenizer = LlamaTokenizerFast.from_pretrained( 
+    #     pretrained_model_name_or_path=model_args.input_model,
+    #     cache_dir=training_args.cache_dir,              
+    #     model_max_length=training_args.model_max_length,
+    #     padding_side="right",
+    #     use_fast=True,
+    #     add_eos_token=False,
+    #     add_bos_token=False,
+    # )
+    # tokenizer = Qwen2TokenizerFast.from_pretrained(
     #     pretrained_model_name_or_path=model_args.input_model,
     #     cache_dir=training_args.cache_dir,
     #     model_max_length=training_args.model_max_length,
     #     padding_side="right",
+    #     use_fast=True,
     #     add_eos_token=False,
     #     add_bos_token=False,
     # )
-
-    tokenizer = LlamaTokenizerFast.from_pretrained( 
+    tokenizer = AutoTokenizer.from_pretrained(
         pretrained_model_name_or_path=model_args.input_model,
-        cache_dir=training_args.cache_dir,              
+        cache_dir=training_args.cache_dir,
         model_max_length=training_args.model_max_length,
         padding_side="right",
-        use_fast=True,
         add_eos_token=False,
         add_bos_token=False,
     )
@@ -61,17 +68,19 @@ def train() -> None:
         block_size=min(training_args.model_max_length, 2048),
     )
 
-    # Prepare the calibration set for static quantization, used to initialize scale and zero_point
-    num_samples = quant_configs.activation.need_sample_for_static_init
-    samples = [train_data[i + 20]["input_ids"] for i in range(num_samples)]
-    batch = torch.tensor(samples).to(device=model_orig.device)
+    batch = None
+    if ptq_args.mode == "static":
+        # Prepare the calibration set for static quantization, used to initialize scale and zero_point
+        num_samples = ptq_args.need_sample_for_static_init
+        samples = [train_data[i + 10]["input_ids"] for i in range(num_samples)]
+        batch = torch.tensor(samples).to(device=model_orig.device)
 
     # Prepare the trainable model and set parameters for training.
     model, R_trainable_parameters, q_trainable_parameters = prepare_model(
-        model_orig, 
-        batch, 
+        model_orig,  
         quant_configs, 
-        ptq_args
+        ptq_args,
+        batch
     )
     model.train()
 
@@ -83,13 +92,10 @@ def train() -> None:
     optimizer = SGDG(
         [
             {"params": R_trainable_parameters, "lr": training_args.learning_rate, "stiefel": True},
-            {"params": q_trainable_parameters, "lr": 0.0001}
+            {"params": q_trainable_parameters, "lr": training_args.learning_rate}
         ],
         lr=training_args.learning_rate
     )
-
-    # Applicable to SpinQuant
-    # optimizer = SGDG(R_trainable_parameters, lr=training_args.learning_rate, stiefel=True)
 
     MyTrainer = Trainer
 
@@ -110,11 +116,13 @@ def train() -> None:
 
     cpu_state = trainer.model.state_dict()
 
-    R_dict = {
-        key.replace(".weight", ""): value.clone().cpu()
-        for key, value in cpu_state.items()
-        if "embed_tokens.R_post.weight" in key or "self_attn.v_proj.R_post.weight" in key
-    }
+    R_dict = {}
+    for key, value in cpu_state.items():
+        if "embed_tokens.R_post.weight" in key or "self_attn.v_proj.R_post.weight" in key:
+            R_dict[key.replace(".weight", "")] =  value.clone().cpu()
+        if "scale" in key or "zero_point" in key:
+            R_dict[key] =  value.clone().cpu()
+        
     if local_rank == 0:
         path = model_args.output_rotation_path
         dir_name = os.path.dirname(path)  

@@ -1,6 +1,5 @@
 import torch
 from tqdm import tqdm
-import torch.nn as nn
 
 
 from train.train_parameter import FakeQuantizer
@@ -46,35 +45,40 @@ def find_qlayers(module, layers=[RotationQuantLinear, RotationEmbedding], name: 
     return res
 
 
-def static_rtn_fwrd(model, batch: torch.Tensor, ptq_args):
+def trainable_static_rtn_fwrd(model, ptq_args, model_args):
     """
-    遍历 model，找到所有 weightQuant 对象
+    遍历 model，找到所有 FakeQuantizer 对象
     
     Args:
         model (nn.Module): 待遍历模型
     """
     change_config_for_static_quant(model, ptq_args)
 
-    model.eval()
-    with torch.no_grad(): 
-        print("bs:", batch.size(0))
-        for i in tqdm(range(batch.size(0)), desc="Init scale and zero_point for static quant"):
-            sample = batch[i].unsqueeze(0)  # 保持 batch 维度
-            model(sample)
-        print("Init scale and zero_point ok!")
-    
+    model.eval() 
 
     layers = model.model.layers
-    for i in tqdm(range(len(layers)), desc="(Static RtN Quant.) Layers"):
-        layer = layers[i]
-        subset = find_qlayers(layer, layers=[RotationQuantLinear])
-        for name in subset:
-            module = subset[name]
-            assert module.weightQuant.config.mode == "static", "We are using dynamic quantization!"
-            
-            W = module.linear.weight.data
-            W_type = W.dtype
-            module.linear.weight.data = module.weightQuant(W).to(dtype=W_type)
-            module.weightQuant.config.num_bits = 16
-            if torch.any(torch.isnan(module.linear.weight.data)):
-                raise ValueError("NaN in linear weights")
+    path = model_args.output_rotation_path
+    data = torch.load(path, map_location="cpu")
+
+    # with open("no_quant.txt", "a", encoding="utf-8") as f:
+    subset = find_qlayers(model, layers=[FakeQuantizer])
+    for name in tqdm(subset, desc="(Trainable Static RtN Quant.) FakeQuantizer"):
+        module = subset[name]
+        assert module.config.mode == "static", "We are using dynamic quantization!"
+        module.config.need_sample_for_static_init = 0
+
+        scale_name = f"{name}.scale"
+        zero_point_name = f"{name}.zero_point"
+
+        if scale_name in data.keys():
+            module.scale = data[scale_name].cuda()
+            # f.write(scale_name + "\n")
+        # else:
+        #     f.write(scale_name + "\n")
+
+        if zero_point_name in data.keys():
+            module.zero_point = data[zero_point_name].cuda()
+            # f.write(zero_point_name + "\n")
+        else:
+            module.zero_point = None
+            # f.write(zero_point_name + "\n")
