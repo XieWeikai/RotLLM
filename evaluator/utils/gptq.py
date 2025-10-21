@@ -8,7 +8,7 @@ import torch.nn as nn
 from tqdm import tqdm
 
 
-from utils.utils import cleanup_memory
+from utils.utils import cleanup_memory, log
 from train.config import QuantizeConfig
 from .weight_quant import WeightQuantizer
 
@@ -286,5 +286,5 @@ def gptq_fwrd(model, dataloader, wConfig: QuantizeConfig):
 
     model.config.use_cache = use_cache
     cleanup_memory(verbos=True)
-    logging.info("-----GPTQ Quantization Done-----\n")
+    log.info("-----GPTQ Quantization Done-----\n")
     return quantizers

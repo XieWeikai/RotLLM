@@ -78,8 +78,8 @@ def parser_gen():
     parser.add_argument(
         "--granularity",
         type=str,
-        default="per-tensor",
-        help="Per-tensor or Per-channel",
+        default="per_tensor",
+        help="per_tensor or per_channel",
     )
     parser.add_argument(
         "--need_sample_for_static_init",
@@ -257,8 +257,6 @@ def process_args_ptq():
     model_args, training_args = parser.parse_args_into_dataclasses(args=unknown_args)
 
     ptq_args.bsz = training_args.per_device_eval_batch_size
-    print("training_args.per_device_eval_batch_size", training_args.per_device_eval_batch_size)
-
 
     # Create default config instance
     all_qconfigs = AllQuantizeConfigs()
@@ -293,11 +291,8 @@ def process_args_ptq():
     all_qconfigs.weight.percdamp = getattr(ptq_args, "percdamp")
     all_qconfigs.weight.act_order = getattr(ptq_args, "act_order")
 
-    # TODO: Bias (添加相关命令行参数适用于 RotLLM)
+    # Bias: 不做任何量化，但保留该接口
     all_qconfigs.bias.num_bits = 16
-    all_qconfigs.bias.is_symmetric = False
-    all_qconfigs.bias.groupsize = -1
-    all_qconfigs.bias.clip_ratio = 1.0
 
     # key 
     all_qconfigs.key.mode = getattr(ptq_args, "mode")

@@ -8,10 +8,8 @@ import torch.nn.functional as F
 import re
 
 
-from utils.utils import get_logger
+from utils.utils import get_logger, log
 
-
-log: Logger = get_logger("RotLLM")
 
 test = False
 count = 5
@@ -305,17 +303,11 @@ def task_baseline(model, tokenizer):
 
     results = {}
 
-    # with open(result_file_path, "w", encoding="utf-8") as f:
-    #     f.write("=== Results ===\n")
-
     for task_name, eval_fn in eval_tasks.items():
         print(f"Running {task_name} evaluation...")
         result = eval_fn(model, tokenizer)
         results[task_name] = result
         print(f"{task_name} result: {result}")
-
-        # with open(result_file_path, "a", encoding="utf-8") as f:
-        #     f.write(f"{task_name}: {result}\n")
 
     model.cpu()
     del model

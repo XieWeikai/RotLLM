@@ -7,6 +7,7 @@ import copy
 from .config import AllQuantizeConfigs
 from .train_parameter import FakeQuantizer
 
+my_Flinear = F.linear
 
 class RotationQuantLinear(nn.Module):
     def __init__(self, config: AllQuantizeConfigs, linear: nn.Linear, num_bits=8, rotation_pos="none", R_pre = None, R_post = None):
@@ -68,7 +69,8 @@ class RotationQuantLinear(nn.Module):
         # w_q = w
         # b_q = b
 
-        y = F.linear(x_q, w_q, b_q)
+        # y = F.linear(x_q, w_q, b_q)
+        y = my_Flinear(x_q, w_q, b_q)
         return y
     
 

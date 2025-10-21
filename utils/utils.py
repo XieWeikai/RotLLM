@@ -2,6 +2,7 @@ import os
 import logging
 from typing import Optional
 import torch
+from logging import Logger
 
 # Define a utility method for setting the logging parameters of a logger
 def get_logger(logger_name: Optional[str]) -> logging.Logger:
@@ -67,3 +68,7 @@ def cleanup_memory(verbos=True) -> None:
                 f"GPU memory{caller_name}: {memory_before / (1024 ** 3):.2f} -> {memory_after / (1024 ** 3):.2f} GB"
                 f" ({(memory_after - memory_before) / (1024 ** 3):.2f} GB)"
             )
+
+
+
+log: Logger = get_logger("RotLLM")

@@ -103,5 +103,4 @@ def evaluator(model, testenc, seqlen, args):
     nlls_tensor = torch.cat(nlls)
     ppl = torch.exp(nlls_tensor.mean())
     model.config.use_cache = use_cache
-    logging.info(f"\n WikiText2 PPL: {ppl.item():.3f}")
     return ppl.item()

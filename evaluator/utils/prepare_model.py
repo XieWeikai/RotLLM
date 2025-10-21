@@ -1,24 +1,25 @@
 import torch
 from typing import Optional
+import importlib
 
 from train.config import AllQuantizeConfigs
 from train.prepare_model import (
     untie_word_embeddings, 
     replace_linear_with_rotation_quant, 
     collect_fakequant_configs, 
-    model_down_proj_groupsize,
-    rotate_down_proj_weights
+    model_down_proj_groupsize
 )
 from utils.fuse_norm_utils import fuse_layer_norms
 from utils.rotation_utils import get_orthogonal_matrix
 from .rotate_model import rotate_model
 from .rtn import rtn_fwrd
-# from .test_gptq import gptq_fwrd
 from .gptq import gptq_fwrd
 from utils.data_utils import get_wikitext2
 from train.train_parameter import NoLearnRotateModule
 from .static_rtn import static_rtn_fwrd
 from .trainable_static_rtn import trainable_static_rtn_fwrd
+from modeling.monkeypatch import add_qkv_rotation_quant
+from utils.utils import log
 
 def set_special_quantization_configuration(model, ptq_args):
     subset = collect_fakequant_configs(model)
@@ -73,25 +74,24 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
     R3 = [NoLearnRotateModule(get_orthogonal_matrix(head_dim, mode="hadamard", device=device)) for _ in range(num_layers)]
     R4 = [NoLearnRotateModule(get_orthogonal_matrix(hidden_dim, mode="hadamard", device=device)) for _ in range(num_layers)]  
 
-    # rotate_down_proj_weights(model)
 
-    # Add online rotation matrices R3 and R4, but do not add the quantizer for Key and Value; 
-    # wait to add this quantizer after GPTQ quantizes the weights.
-    if model.config.model_type == "llama": 
-        from modeling.llama import apply_R3R4_change_model 
-        from modeling.llama import value_kv_quantizers 
-        print("from modeling.llama import apply_R3R4_change_model")
-        print("from modeling.llama import value_kv_quantizers")
-    elif model.config.model_type == "qwen2": 
-        from modeling.qwen2 import apply_R3R4_change_model
-        from modeling.qwen2 import value_kv_quantizers 
-        print("from modeling.qwen2 import apply_R3R4_change_model")
-        print("from modeling.qwen2 import value_kv_quantizers")
-    else:
-        raise NotImplementedError(f"Unsupported model type {model.config.model_type}")
+    # 添加在线旋转矩阵 R4
+    model_type = model.config.model_type
+    # 动态导入对应的 modeling 模块
+    try:
+        modeling_module = importlib.import_module(f"modeling.{model_type}")
+    except ModuleNotFoundError:
+        raise ImportError(f"Cannot find modeling module for '{model_type}' (expected modeling/{model_type}.py)")
 
-    apply_R3R4_change_model(model, R3, R4, quant_configs.key, quant_configs.value, to_quant = False)
-    
+    # 检查模块中是否定义了 apply_R4_change_model
+    if not hasattr(modeling_module, "apply_R4_change_model"):
+        raise AttributeError(f"'modeling.{model_type}' does not define function 'apply_R4_change_model'")
+
+    # 调用函数
+    func = getattr(modeling_module, "apply_R4_change_model")
+    log.info(f"✅ Found 'apply_R4_change_model' in modeling.{model_type}, now calling it...")
+    func(model, R4)
+
     if ptq_args.trainable_R:
         assert model_args.output_rotation_path is not None, "We must give the output_rotation_path in the command line."
         R_path = model_args.output_rotation_path
@@ -127,11 +127,7 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
                 eval_mode=False,
             )
             # quantize other layers with gptq
-            # gptq_fwrd(model, trainloader, "cuda", ptq_args)
             gptq_fwrd(model, trainloader, quant_configs.weight)
-    
-    # Add quantizer for Key and Value
-    value_kv_quantizers(model)
 
     # Add all the quantizers, replacing the linear layer with RotationQuantLinear that does not contain rotation matrices
     # (with the parameter rotation_map set to None)
@@ -140,19 +136,18 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
         quant_configs=quant_configs,
     )
 
+    # 必须要先将所有的 linear 替换成 RotationQuantLinear，然后再调用下面函数为 Value 添加量化操作，同时还对 Query、Key 添加在线旋转 R3、量化操作
+    add_qkv_rotation_quant(model, R3, quant_configs.key, quant_configs.value)
+
+
     # Adjust the settings of the quantizer for the special layer, change the config, 
     # and set the weight config to 16 bits (i.e., not quantized, since it has already been quantized previously).
     if ptq_args.mode == "dynamic":
         model = set_special_quantization_configuration(model, ptq_args)
     else:
         if ptq_args.trainable_scale:
-            # per-channel + train: 16.26(0.001) -- 12.63(0.01) -- 11.05(1.5 + 0.01) -- 10.95(0.1)
-            trainable_static_rtn_fwrd(model, ptq_args, model_args)
+            trainable_static_rtn_fwrd(model, ptq_args, model_args) 
         else:
-            # 4-4-4: per-tensor: 1546.36、per-channel: 21.01
-            # 4-4-16: per-tensor: 1238.59
-            # 4-8-16: per-tensor: 15.28
-            # 8-8-16: per-tensor: 10.16
             static_rtn_fwrd(model, batch, ptq_args)
 
     return model

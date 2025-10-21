@@ -60,7 +60,6 @@ def trainable_static_rtn_fwrd(model, ptq_args, model_args):
     path = model_args.output_rotation_path
     data = torch.load(path, map_location="cpu")
 
-    # with open("no_quant.txt", "a", encoding="utf-8") as f:
     subset = find_qlayers(model, layers=[FakeQuantizer])
     for name in tqdm(subset, desc="(Trainable Static RtN Quant.) FakeQuantizer"):
         module = subset[name]
@@ -72,13 +71,8 @@ def trainable_static_rtn_fwrd(model, ptq_args, model_args):
 
         if scale_name in data.keys():
             module.scale = data[scale_name].cuda()
-            # f.write(scale_name + "\n")
-        # else:
-        #     f.write(scale_name + "\n")
 
         if zero_point_name in data.keys():
-            module.zero_point = data[zero_point_name].cuda()
-            # f.write(zero_point_name + "\n")
+            module.zero_point = data[zero_point_name].round().cuda()
         else:
             module.zero_point = None
-            # f.write(zero_point_name + "\n")

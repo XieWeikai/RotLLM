@@ -153,7 +153,7 @@ def compute_qparams_dynamic(input: torch.Tensor, config, min_val, max_val)->Tupl
 
     return scale, zero_point 
 
-def compute_qparams_static(config, input_max, input_min, min_val, max_val) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+def compute_qparams_static_min_max(config, input_max, input_min, min_val, max_val) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
     """
     Static compute scale and zero point for quantization.
     """
@@ -181,7 +181,7 @@ def compute_input_min_max_static(input: torch.Tensor, config):
     return xmax, xmin
 
 
-def compute_weight_qparams_static(input: torch.Tensor, config, min_val, max_val):
+def compute_qparams_static_mean_std(input: torch.Tensor, config, min_val, max_val):
     if config.granularity == 'per_tensor':
         input = input.flatten() 
 
@@ -209,9 +209,12 @@ class StaticLearnableFakeQuantizeFunction(torch.autograd.Function):
     Static Quantization(Learnable scale and zero_point):
     """
     @staticmethod
-    def forward(ctx, input, scale, zero_point, min_val, max_val, warmup_step = None):
+    def forward(ctx, input, scale, zero_point, min_val, max_val, warmup_step = None, warmup_share_parameter_num = None):
         input_type = input.dtype
         input = input.to(scale.dtype)
+
+        if zero_point is not None:
+            zero_point = zero_point.round()
 
         # Truncation: In order to accommodate samples with different sequence lengths during evaluation, 
         # it has no effect on the training phase.
@@ -236,6 +239,7 @@ class StaticLearnableFakeQuantizeFunction(torch.autograd.Function):
         ctx.min_val = min_val
         ctx.max_val = max_val
         ctx.warmup_step = warmup_step
+        ctx.warmup_share_parameter_num = warmup_share_parameter_num
         
         return dequantized
 
@@ -245,6 +249,7 @@ class StaticLearnableFakeQuantizeFunction(torch.autograd.Function):
         min_val = ctx.min_val
         max_val = ctx.max_val
         warmup_step = ctx.warmup_step
+        warmup_share_parameter_num = ctx.warmup_share_parameter_num
 
         input_type = input.dtype
         input = input.to(scale.dtype)
@@ -287,7 +292,7 @@ class StaticLearnableFakeQuantizeFunction(torch.autograd.Function):
         
         if warmup_step is not None and warmup_step > 0:
             warmup_step -= 1
-            init_grad_scale, init_grad_z = update_activation_init_scale_and_zero_point(input, scale, zero_point, min_val, max_val, grad_factor)
+            init_grad_scale, init_grad_z = update_activation_init_scale_and_zero_point(input, scale, zero_point, min_val, max_val, grad_factor, warmup_share_parameter_num)
             grad_scale = grad_scale + init_grad_scale
             grad_z = grad_z + init_grad_z if zero_point is not None else None
 
@@ -306,11 +311,7 @@ class StaticLearnableFakeQuantizeFunction(torch.autograd.Function):
         assert torch.isfinite(grad_input).all(), "grad_input has NaN or Inf"
 
         input = input.to(input_type)
-        # print("====")
-        # print(scale)
-        # print(grad_scale)
-        # print("====")
-        return grad_input, grad_scale, grad_z, None, None, None    
+        return grad_input, grad_scale, grad_z, None, None, None, None    
 
     
 
@@ -363,7 +364,7 @@ class DynamicUnLearnableFakeQuantizeFunction(torch.autograd.Function):
 
 
 
-def update_activation_init_scale_and_zero_point(input, scale, zero_point, min_val, max_val, grad_factor):
+def update_activation_init_scale_and_zero_point(input, scale, zero_point, min_val, max_val, grad_factor, warmup_share_parameter_num):
     scaled_input = input / scale
     if zero_point is not None:
         input_q = scaled_input + zero_point
@@ -387,18 +388,11 @@ def update_activation_init_scale_and_zero_point(input, scale, zero_point, min_va
         grad_scale = ((-input_q + quantized) * between + min_val * smaller + max_val * bigger) * grad_factor
         grad_z = None
 
-    # if zero_point is not None:
-    #     grad_scale = grad_factor * 2 * (dequantized - input) * grad_scale
-    #     grad_z = grad_factor * 2 * (dequantized - input) * grad_z
-    # else:
-    #     grad_scale = grad_factor * 2 * (dequantized - input) * grad_scale
-    #     grad_z = None 
-
     if zero_point is not None:
-        grad_scale = 2 * (dequantized - input) * grad_scale
-        grad_z = 2 * (dequantized - input) * grad_z
+        grad_scale = 2 * (dequantized - input) * grad_scale / warmup_share_parameter_num
+        grad_z = 2 * (dequantized - input) * grad_z / warmup_share_parameter_num
     else:
-        grad_scale = 2 * (dequantized - input) * grad_scale
+        grad_scale = 2 * (dequantized - input) * grad_scale / warmup_share_parameter_num
         grad_z = None
     
     return grad_scale, grad_z

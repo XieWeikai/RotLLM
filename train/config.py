@@ -7,7 +7,7 @@ class QuantizeConfig:
     Base onfiguration for quantization.
     """
     mode: str = 'static'               # 'dynamic'(Only support per-channel and per-group) or 'static' (Only support per-tensor and per-channel)
-    granularity: str = 'per_channel'     # 'per_tensor' or 'per_channel' (When mode == static, granularity is effective.)
+    granularity: str = 'per_tensor'     # 'per_tensor' or 'per_channel' (When mode == static, granularity is effective.)
     need_sample_for_static_init: int = 0
 
     num_bits: int = 16
@@ -23,6 +23,7 @@ class ActivationQuantizeConfig(QuantizeConfig):
     """
     int8_down_proj: bool = False
     warmup_step: torch.Tensor = torch.tensor(0)
+    warmup_share_parameter_num: int = 1
     
 
 @dataclasses.dataclass
@@ -47,7 +48,7 @@ class BiasQuantizeConfig(QuantizeConfig):
     """
     Bias quantization config.
     """
-    clip_ratio: float = 1.0
+    num_bits: int = 16
 
 
 @dataclasses.dataclass
@@ -56,6 +57,7 @@ class KeyQuantizeConfig(QuantizeConfig):
     Key quantization config.
     """
     warmup_step: torch.Tensor = torch.tensor(0)
+    warmup_share_parameter_num: int = 1
 
 
 @dataclasses.dataclass
@@ -64,6 +66,7 @@ class ValueQuantizeConfig(QuantizeConfig):
     Value quantization config.
     """
     warmup_step: torch.Tensor = torch.tensor(0)
+    warmup_share_parameter_num: int = 1
 
 
 @dataclasses.dataclass

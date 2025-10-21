@@ -1,10 +1,10 @@
 import torch
 from tqdm import tqdm
-import torch.nn as nn
 
 
 from train.train_parameter import FakeQuantizer
 from train.train_model import RotationEmbedding, RotationQuantLinear
+from utils.utils import log
 
 
 def change_config_for_static_quant(model, ptq_args):
@@ -47,6 +47,12 @@ def find_qlayers(module, layers=[RotationQuantLinear, RotationEmbedding], name: 
 
 
 def static_rtn_fwrd(model, batch: torch.Tensor, ptq_args):
+    # batch_test = batch[-4:]
+    # x12 = batch[:12]
+    # x_last4 = x12[-4:]
+    # batch = torch.cat([x12, x_last4], dim=0)
+    # print(batch.shape[0])
+    # print(batch_test.shape[0])
     """
     遍历 model，找到所有 weightQuant 对象
     
@@ -57,12 +63,13 @@ def static_rtn_fwrd(model, batch: torch.Tensor, ptq_args):
 
     model.eval()
     with torch.no_grad(): 
-        print("bs:", batch.size(0))
         for i in tqdm(range(batch.size(0)), desc="Init scale and zero_point for static quant"):
             sample = batch[i].unsqueeze(0)  # 保持 batch 维度
             model(sample)
-        print("Init scale and zero_point ok!")
+        log.info("✅ Init scale and zero_point ok!")
     
+    # draw_weight(model, batch_test)
+    # assert False, "haha"            
 
     layers = model.model.layers
     for i in tqdm(range(len(layers)), desc="(Static RtN Quant.) Layers"):

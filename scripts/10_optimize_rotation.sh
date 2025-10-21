@@ -18,18 +18,18 @@
 export HF_ENDPOINT=https://hf-mirror.com
 CUDA_VISIBLE_DEVICES=3,4,5,6 torchrun --nnodes=1 --nproc_per_node=4 -m train.train \
 --input_model $1  \
---output_rotation_path "/data/zjh/tensor/SmolLM_it_8_8_16_0_01_0_01_256_wp64.bin" \
---output_dir "/data/zjh/tensor/outputs" \
---logging_dir "/data/zjh/tensor/logs" \
+--output_rotation_path "/data/zjh/tensor_1020/llama_it_8_8_16.bin" \
+--output_dir "/data/zjh/tensor_1020/outputs" \
+--logging_dir "/data/zjh/tensor_1020/logs" \
 --model_max_length 2048 \
 --fp16 False \
 --bf16 True \
 --log_on_each_node False \
 --per_device_train_batch_size 2 \
 --gradient_accumulation_steps 2 \
---max_steps 256 \
---logging_steps 1 \
---learning_rate 0.01 \
+--max_steps 1024 \
+--logging_steps 10 \
+--learning_rate 0.1 \
 --weight_decay 0. \
 --lr_scheduler_type "cosine" \
 --gradient_checkpointing True \

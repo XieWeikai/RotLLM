@@ -2,19 +2,17 @@ import os
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from datasets import load_dataset
-from transformers import LlamaTokenizerFast, Qwen2TokenizerFast, Trainer, default_data_collator
+from transformers import Trainer, default_data_collator
 import datetime
 import torch.distributed as dist
-from logging import Logger
 import transformers
 
 from .optimizer import SGDG
 from utils.data_utils import CustomJsonDataset 
 from .prepare_model import prepare_model
 from utils.process_args import process_args_ptq
-from utils.utils import get_logger, get_local_rank
+from utils.utils import get_local_rank, log
 
-log: Logger = get_logger("RotLLM")
 
 def train() -> None:
     dist.init_process_group(backend="nccl", timeout=datetime.timedelta(hours=8))
@@ -27,38 +25,52 @@ def train() -> None:
 
     device = "cuda"
     dtype = torch.bfloat16 if training_args.bf16 else torch.float16
-    # dtype = torch.float32
-
-    # tokenizer = LlamaTokenizerFast.from_pretrained( 
-    #     pretrained_model_name_or_path=model_args.input_model,
-    #     cache_dir=training_args.cache_dir,              
-    #     model_max_length=training_args.model_max_length,
-    #     padding_side="right",
-    #     use_fast=True,
-    #     add_eos_token=False,
-    #     add_bos_token=False,
-    # )
-    # tokenizer = Qwen2TokenizerFast.from_pretrained(
-    #     pretrained_model_name_or_path=model_args.input_model,
-    #     cache_dir=training_args.cache_dir,
-    #     model_max_length=training_args.model_max_length,
-    #     padding_side="right",
-    #     use_fast=True,
-    #     add_eos_token=False,
-    #     add_bos_token=False,
-    # )
-    tokenizer = AutoTokenizer.from_pretrained(
-        pretrained_model_name_or_path=model_args.input_model,
-        cache_dir=training_args.cache_dir,
-        model_max_length=training_args.model_max_length,
-        padding_side="right",
-        add_eos_token=False,
-        add_bos_token=False,
-    )
-    if local_rank == 0:
-        log.info(f"Complete tokenizer loading(GPU {local_rank})...")
 
     model_orig = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=model_args.input_model, torch_dtype=dtype).to(device=device)
+
+    tokenizer_classes = {
+        "llama": "LlamaTokenizerFast",
+        "qwen2": "Qwen2TokenizerFast",
+    }
+    tokenizer = None
+    tokenizer_class_name = tokenizer_classes.get(model_orig.config.model_type)
+    
+    if tokenizer_class_name is not None:
+        try:
+            tokenizer_class = getattr(__import__('transformers'), tokenizer_class_name)
+            if local_rank == 0:
+                log.info(f"Attempting to use {tokenizer_class.__name__}.")
+            tokenizer = tokenizer_class.from_pretrained( 
+                pretrained_model_name_or_path=model_args.input_model,
+                cache_dir=training_args.cache_dir,              
+                model_max_length=training_args.model_max_length,
+                padding_side="right",
+                use_fast=True,
+                add_eos_token=False,
+                add_bos_token=False,
+            )
+            if local_rank == 0:
+                log.info(f"✅ Successfully loaded {tokenizer_class.__name__}.")
+        except Exception as e:
+            if local_rank == 0:
+                log.warning(f"Failed to load {tokenizer_class_name}: {e}")
+            tokenizer = None
+    
+    # 如果加载 Fast tokenizer 失败，则回退到 AutoTokenizer
+    if tokenizer is None:
+        if local_rank == 0:
+            log.info("✅ Using AutoTokenizer.")
+        tokenizer = AutoTokenizer.from_pretrained(
+            pretrained_model_name_or_path=model_args.input_model,
+            cache_dir=training_args.cache_dir,
+            model_max_length=training_args.model_max_length,
+            padding_side="right",
+            add_eos_token=False,
+            add_bos_token=False,
+        )
+        
+    if local_rank == 0:
+        log.info(f"Complete tokenizer loading...")
 
     # Prepare training data and calibration set.
     dataset = load_dataset("Salesforce/wikitext", "wikitext-2-raw-v1")
@@ -84,22 +96,23 @@ def train() -> None:
     )
     model.train()
 
+    # q_trainable_parameters = []
+
     if local_rank == 0:
         log.info("Model init completed for training...")
-        log.info("Start to train...")
+        log.info("💡Start to train...")
     
     # Applicable to RotLLM
     optimizer = SGDG(
         [
             {"params": R_trainable_parameters, "lr": training_args.learning_rate, "stiefel": True},
-            {"params": q_trainable_parameters, "lr": training_args.learning_rate}
+            {"params": q_trainable_parameters, "lr": training_args.learning_rate / 10}
         ],
         lr=training_args.learning_rate
     )
 
     MyTrainer = Trainer
 
-    # TODO: Adam(RotLLM)
     trainer = MyTrainer(
         model=model,
         tokenizer=tokenizer,

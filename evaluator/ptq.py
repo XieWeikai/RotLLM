@@ -1,18 +1,15 @@
 import torch
-from transformers import LlamaTokenizerFast, AutoModelForCausalLM, AutoTokenizer, Qwen2TokenizerFast
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from datasets import load_dataset
-from logging import Logger
 import transformers
 
 from utils.data_utils import get_wikitext2
 from evaluator.utils.prepare_model import prepare_model
 from utils.process_args import process_args_ptq
-from utils.utils import get_logger
+from utils.utils import log
 from evaluator.utils.evaluator import evaluator
 from utils.data_utils import CustomJsonDataset
 from .task import task_baseline
-
-log: Logger = get_logger("RotLLM")
 
 def eval() -> None:
     model_args, training_args, ptq_args, quant_configs = process_args_ptq()
@@ -20,37 +17,47 @@ def eval() -> None:
     device = "cuda"
     dtype = torch.bfloat16 if training_args.bf16 else torch.float16
 
-    # tokenizer = LlamaTokenizerFast.from_pretrained(
-    #     pretrained_model_name_or_path=model_args.input_model,
-    #     cache_dir=training_args.cache_dir,
-    #     model_max_length=training_args.model_max_length,
-    #     padding_side="right",
-    #     use_fast=True,
-    #     add_eos_token=False,
-    #     add_bos_token=False,
-    # )
-    # tokenizer = Qwen2TokenizerFast.from_pretrained(
-    #     pretrained_model_name_or_path=model_args.input_model,
-    #     cache_dir=training_args.cache_dir,
-    #     model_max_length=training_args.model_max_length,
-    #     padding_side="right",
-    #     use_fast=True,
-    #     add_eos_token=False,
-    #     add_bos_token=False,
-    # )
-    tokenizer = AutoTokenizer.from_pretrained(
-        pretrained_model_name_or_path=model_args.input_model,
-        cache_dir=training_args.cache_dir,
-        model_max_length=training_args.model_max_length,
-        padding_side="right",
-        add_eos_token=False,
-        add_bos_token=False,
-    )
-
-    log.info(f"Complete tokenizer loading...")
-
     model = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=model_args.input_model, torch_dtype=dtype).to(device=device)
 
+    tokenizer_classes = {
+        "llama": "LlamaTokenizerFast",
+        "qwen2": "Qwen2TokenizerFast",
+    }
+    tokenizer = None
+    tokenizer_class_name = tokenizer_classes.get(model.config.model_type)
+    
+    if tokenizer_class_name is not None:
+        try:
+            tokenizer_class = getattr(__import__('transformers'), tokenizer_class_name)
+            log.info(f"Attempting to use {tokenizer_class.__name__}.")
+            tokenizer = tokenizer_class.from_pretrained( 
+                pretrained_model_name_or_path=model_args.input_model,
+                cache_dir=training_args.cache_dir,              
+                model_max_length=training_args.model_max_length,
+                padding_side="right",
+                use_fast=True,
+                add_eos_token=False,
+                add_bos_token=False,
+            )
+            log.info(f"✅ Successfully loaded {tokenizer_class.__name__}.")
+        except Exception as e:
+            log.warning(f"Failed to load {tokenizer_class_name}: {e}")
+            tokenizer = None
+    
+    # 如果加载 Fast tokenizer 失败，则回退到 AutoTokenizer
+    if tokenizer is None:
+        log.info("✅ Using AutoTokenizer.")
+        tokenizer = AutoTokenizer.from_pretrained(
+            pretrained_model_name_or_path=model_args.input_model,
+            cache_dir=training_args.cache_dir,
+            model_max_length=training_args.model_max_length,
+            padding_side="right",
+            add_eos_token=False,
+            add_bos_token=False,
+        )
+    log.info(f"Complete tokenizer loading...")
+
+    
     model.config.use_cache = False
     # Prepare the dataset (for calibration and evaluation)
     dataset = load_dataset("Salesforce/wikitext", "wikitext-2-raw-v1")
@@ -71,7 +78,7 @@ def eval() -> None:
     model = prepare_model(model, dataset, quant_configs, ptq_args, model_args, batch)
 
     log.info("Model init completed for evaling...")
-    log.info("Start to eval...")
+    log.info("💡Start to eval...")
     
     if not ptq_args.task:
         testloader = get_wikitext2(
@@ -84,7 +91,7 @@ def eval() -> None:
         dataset_ppl = evaluator(model, testloader, training_args.model_max_length, ptq_args)
         log.info("wiki2 ppl is: {}".format(dataset_ppl))
     else:
-        log.info("Calculate PIQA...")
+        log.info("Calculate PIQA, WinoGrande...")
         task_baseline(model, tokenizer)
     
 if __name__ == "__main__":
