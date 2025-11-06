@@ -16,18 +16,18 @@
 # For example: bash scripts/10_optimize_rotation.sh /data/share/Qwen2.5-3B-Instruct 4 4 4
 # For example: bash scripts/10_optimize_rotation.sh /data/share/SmolLM2-1.7B-Instruct 4 4 4
 export HF_ENDPOINT=https://hf-mirror.com
-CUDA_VISIBLE_DEVICES=3,4,5,6 torchrun --nnodes=1 --nproc_per_node=4 -m train.train \
+CUDA_VISIBLE_DEVICES=3,4,6,7 torchrun --nnodes=1 --nproc_per_node=4 -m train.train \
 --input_model $1  \
---output_rotation_path "/data/zjh/tensor_1020/llama_it_8_8_16.bin" \
---output_dir "/data/zjh/tensor_1020/outputs" \
---logging_dir "/data/zjh/tensor_1020/logs" \
+--output_rotation_path "/data/zjh/tensor_1024/test.bin" \
+--output_dir "/data/zjh/tensor_1024/outputs" \
+--logging_dir "/data/zjh/tensor_1024/logs" \
 --model_max_length 2048 \
 --fp16 False \
 --bf16 True \
 --log_on_each_node False \
 --per_device_train_batch_size 2 \
 --gradient_accumulation_steps 2 \
---max_steps 1024 \
+--max_steps 512 \
 --logging_steps 10 \
 --learning_rate 0.1 \
 --weight_decay 0. \
@@ -50,3 +50,7 @@ CUDA_VISIBLE_DEVICES=3,4,5,6 torchrun --nnodes=1 --nproc_per_node=4 -m train.tra
 --no-v_sym \
 --k_groupsize 128 \
 --v_groupsize 128 \
+--a_init_type "maxmin" \
+--adaptive_mixed_precision \
+--adapt_need_sample 4 \
+--adapt_activation_percentage 0.1 \

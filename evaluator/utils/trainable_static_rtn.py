@@ -68,6 +68,7 @@ def trainable_static_rtn_fwrd(model, ptq_args, model_args):
 
         scale_name = f"{name}.scale"
         zero_point_name = f"{name}.zero_point"
+        num_bits_name = f"{name}.config.num_bits"
 
         if scale_name in data.keys():
             module.scale = data[scale_name].cuda()
@@ -76,3 +77,10 @@ def trainable_static_rtn_fwrd(model, ptq_args, model_args):
             module.zero_point = data[zero_point_name].round().cuda()
         else:
             module.zero_point = None
+
+        if num_bits_name in data.keys():
+            module.config.num_bits = data[num_bits_name]
+        else:
+            print("****")
+            print(num_bits_name)
+            print("****")

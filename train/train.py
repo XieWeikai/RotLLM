@@ -12,6 +12,7 @@ from utils.data_utils import CustomJsonDataset
 from .prepare_model import prepare_model
 from utils.process_args import process_args_ptq
 from utils.utils import get_local_rank, log
+from utils.adapt_mix_precision import collect_fakequant_configs
 
 
 def train() -> None:
@@ -84,6 +85,8 @@ def train() -> None:
     if ptq_args.mode == "static":
         # Prepare the calibration set for static quantization, used to initialize scale and zero_point
         num_samples = ptq_args.need_sample_for_static_init
+        if ptq_args.adaptive_mixed_precision:
+            num_samples += ptq_args.adapt_need_sample
         samples = [train_data[i + 10]["input_ids"] for i in range(num_samples)]
         batch = torch.tensor(samples).to(device=model_orig.device)
 
@@ -95,8 +98,6 @@ def train() -> None:
         batch
     )
     model.train()
-
-    # q_trainable_parameters = []
 
     if local_rank == 0:
         log.info("Model init completed for training...")
@@ -136,6 +137,10 @@ def train() -> None:
         if "scale" in key or "zero_point" in key:
             R_dict[key] =  value.clone().cpu()
         
+    fq_dict = collect_fakequant_configs(model, "txt/after_train_quant_config.txt", write_to_file=True)
+    for key, value in fq_dict.items():
+        R_dict[f"{key}.config.num_bits"] = value.num_bits
+
     if local_rank == 0:
         path = model_args.output_rotation_path
         dir_name = os.path.dirname(path)  

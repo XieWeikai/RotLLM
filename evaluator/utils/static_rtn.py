@@ -47,12 +47,6 @@ def find_qlayers(module, layers=[RotationQuantLinear, RotationEmbedding], name: 
 
 
 def static_rtn_fwrd(model, batch: torch.Tensor, ptq_args):
-    # batch_test = batch[-4:]
-    # x12 = batch[:12]
-    # x_last4 = x12[-4:]
-    # batch = torch.cat([x12, x_last4], dim=0)
-    # print(batch.shape[0])
-    # print(batch_test.shape[0])
     """
     遍历 model，找到所有 weightQuant 对象
     
@@ -68,8 +62,6 @@ def static_rtn_fwrd(model, batch: torch.Tensor, ptq_args):
             model(sample)
         log.info("✅ Init scale and zero_point ok!")
     
-    # draw_weight(model, batch_test)
-    # assert False, "haha"            
 
     layers = model.model.layers
     for i in tqdm(range(len(layers)), desc="(Static RtN Quant.) Layers"):

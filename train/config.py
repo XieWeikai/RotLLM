@@ -9,6 +9,7 @@ class QuantizeConfig:
     mode: str = 'static'               # 'dynamic'(Only support per-channel and per-group) or 'static' (Only support per-tensor and per-channel)
     granularity: str = 'per_tensor'     # 'per_tensor' or 'per_channel' (When mode == static, granularity is effective.)
     need_sample_for_static_init: int = 0
+    init_type: str = 'mean'
 
     num_bits: int = 16
     is_symmetric: bool = False

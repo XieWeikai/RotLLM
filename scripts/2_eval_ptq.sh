@@ -25,10 +25,12 @@ CUDA_VISIBLE_DEVICES=4 python -m evaluator.ptq \
 --bf16 True \
 --save_safetensors False \
 --mode "static" \
---granularity "per_channel" \
---no-trainable_scale \
---no-trainable_R \
+--granularity "per_tensor" \
+--trainable_scale \
+--trainable_R \
 --need_sample_for_static_init 16 \
+--a_init_type "mean" \
+--w_init_type "mean" \
 --w_bits $2 \
 --a_bits $3 \
 --k_bits $4 \
@@ -39,5 +41,5 @@ CUDA_VISIBLE_DEVICES=4 python -m evaluator.ptq \
 --no-v_sym \
 --k_groupsize 128 \
 --v_groupsize 128 \
---output_rotation_path "/data/zjh/tensor_1020/llama_it_4_8_16.bin" \
+--output_rotation_path "/data/zjh/tensor_1024/smolLM_it_4_48_16_mix_init_95.bin" \
 --no-task \

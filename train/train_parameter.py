@@ -36,7 +36,21 @@ class FakeQuantizer(nn.Module):
         super().__init__()
         self.config = config
 
-    def init_activation_scale_and_zero_point(self, input):
+    def init_activation_scale_and_zero_point_maxmin(self, input):
+        # If it is static quantization, it is necessary to use the calibration
+        # to pre-calculate the scale and zero_point, and set them as learnable parameters.           
+        xmax, xmin = compute_input_min_max_static(input, self.config)
+        self.xmax = torch.maximum(self.xmax, xmax) if hasattr(self, "xmax") else xmax
+        self.xmin = torch.minimum(self.xmin, xmin) if hasattr(self, "xmin") else xmin
+        self.config.need_sample_for_static_init -= 1        # The required sample minus 1
+
+        if self.config.need_sample_for_static_init == 0:
+            self.qmin, self.qmax = compute_n_bits_min_max(self.config)
+            self.scale, self.zero_point = compute_qparams_static_min_max(self.config, self.xmax, self.xmin, self.qmin, self.qmax)
+            self.scale = nn.Parameter(self.scale)
+            self.zero_point = nn.Parameter(self.zero_point) if self.zero_point is not None else None
+
+    def init_activation_scale_and_zero_point_mean(self, input):
         self.config.need_sample_for_static_init -= 1        # The required sample minus 1
         self.qmin, self.qmax = compute_n_bits_min_max(self.config)
         scale, zero_point = compute_qparams_static_mean_std(input, self.config, self.qmin, self.qmax)
@@ -49,8 +63,21 @@ class FakeQuantizer(nn.Module):
             self.zero_point = nn.Parameter(zero_point) if zero_point is not None else None
 
 
+    def init_weight_scale_and_zero_point_maxmin(self, input):
+        self.config.need_sample_for_static_init -= 1        # The required sample minus 1
+        # If it is static quantization, it is necessary to use the calibration
+        # to pre-calculate the scale and zero_point, and set them as learnable parameters.  
+        if self.ready():
+            return         
+        xmax, xmin = compute_input_min_max_static(input, self.config)
+        self.xmax = xmax
+        self.xmin = xmin 
+        self.qmin, self.qmax = compute_n_bits_min_max(self.config)
+        self.scale, self.zero_point = compute_qparams_static_min_max(self.config, self.xmax, self.xmin, self.qmin, self.qmax)
+        self.scale = nn.Parameter(self.scale)
+        self.zero_point = nn.Parameter(self.zero_point) if self.zero_point is not None else None
 
-    def init_weight_scale_and_zero_point(self, input):
+    def init_weight_scale_and_zero_point_mean(self, input):
         self.config.need_sample_for_static_init -= 1        # The required sample minus 1
         if self.ready():
             return
@@ -72,13 +99,23 @@ class FakeQuantizer(nn.Module):
             input_q = input
             if isinstance(self.config, (ActivationQuantizeConfig, KeyQuantizeConfig, ValueQuantizeConfig)):
                 if self.config.need_sample_for_static_init > 0:
-                    self.init_activation_scale_and_zero_point(input)
+                    if self.config.init_type == 'mean':
+                        self.init_activation_scale_and_zero_point_mean(input)
+                    elif self.config.init_type == 'maxmin':
+                        self.init_activation_scale_and_zero_point_maxmin(input)
+                    else:
+                        raise NotImplementedError(f"init_type '{self.config.init_type}' is not implemented yet.")
                 else:
                     self.qmin, self.qmax = compute_n_bits_min_max(self.config)
                     input_q = StaticLearnableFakeQuantizeFunction.apply(input, self.scale, self.zero_point, self.qmin, self.qmax, self.config.warmup_step, self.config.warmup_share_parameter_num)
             elif isinstance(self.config, WeightQuantizeConfig):
                 if self.config.need_sample_for_static_init > 0:         
-                    self.init_weight_scale_and_zero_point(input)
+                    if self.config.init_type == 'mean':
+                        self.init_weight_scale_and_zero_point_mean(input)
+                    elif self.config.init_type == 'maxmin':
+                        self.init_weight_scale_and_zero_point_maxmin(input)
+                    else:
+                        raise NotImplementedError(f"init_type '{self.config.init_type}' is not implemented yet.")
                 else:
                     self.qmin, self.qmax = compute_n_bits_min_max(self.config)
                     input_q = StaticLearnableFakeQuantizeFunction.apply(input, self.scale, self.zero_point, self.qmin, self.qmax)       

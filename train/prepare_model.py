@@ -12,6 +12,7 @@ from utils.rotation_utils import get_orthogonal_matrix
 from .train_parameter import LearnRotateModule, NoLearnRotateModule, FakeQuantizer
 from modeling.monkeypatch import add_qkv_rotation_quant
 from utils.utils import get_local_rank, log
+from utils.adapt_mix_precision import adapt_modify_fakequant_configs, collect_fakequant_configs
 
 
 def untie_word_embeddings(model):
@@ -163,17 +164,6 @@ def replace_embedding_with_rotation_embedding(model: nn.Module, rotation_map: di
             replace_embedding_with_rotation_embedding(module, rotation_map, prefix=full_name)
     return model
 
-
-def collect_fakequant_configs(model):
-    """
-    Find all FakeQuantizers in the model to facilitate the modification of the 
-    quantization configuration in FakeQuantizer using set_special_quantization_configuration.
-    """
-    fq_dict = {}
-    for name, module in model.named_modules():
-        if isinstance(module, FakeQuantizer):
-            fq_dict[name] = module.config
-    return fq_dict
 
 def model_down_proj_groupsize(model, groupsize):
     assert groupsize > 1, "groupsize should be greater than 1!"
@@ -336,12 +326,30 @@ def prepare_model(model, quant_configs: AllQuantizeConfigs, ptq_args, batch: Opt
     if quant_configs.weight.mode == "static":
         assert batch is not None, "We need to prepare the initial sample set required for static quantization."
         model.eval()
+
+        if ptq_args.adaptive_mixed_precision:
+            batch_find_threshold = batch[-ptq_args.adapt_need_sample:]
+            batch = batch[:ptq_args.need_sample_for_static_init]
+
         with torch.no_grad(): 
             for i in tqdm(range(batch.size(0)), desc="Init scale and zero_point for static quant", disable=not (local_rank == 0)):
                 sample = batch[i].unsqueeze(0)  # 保持 batch 维度
                 model(sample)
             if local_rank == 0:
                 log.info(f"✅ Init scale and zero_point ok!")
+
+        if ptq_args.adaptive_mixed_precision:
+            assert batch_find_threshold is not None, "batch_find_threshold should not be empty."
+            model = adapt_modify_fakequant_configs(model, batch_find_threshold, ptq_args, local_rank)
+
+            with torch.no_grad(): 
+                for i in tqdm(range(batch.size(0)), desc="Re-init scale and zero_point for static quant", disable=not (local_rank == 0)):
+                    sample = batch[i].unsqueeze(0)  # 保持 batch 维度
+                    model(sample)
+                if local_rank == 0:
+                    log.info(f"✅ Re-init scale and zero_point ok!")
+
+            fq_dict = collect_fakequant_configs(model, "txt/after_second_init_quant_config.txt", write_to_file=True, local_rank=local_rank)
 
     # 将 q_proj、k_proj、v_proj 前的激活量化器中的 scale、zero_point 共享同一个参数
     # 将 gate_proj、up_proj 前的激活量化器中的 scale、zero_point 共享同一个参数

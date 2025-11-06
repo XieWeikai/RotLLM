@@ -44,6 +44,29 @@ def parser_gen():
     parser.add_argument(
         "--seed", type=int, default=0, help="Random Seed for HuggingFace and PyTorch"
     )
+    # Use for train
+    parser.add_argument(
+        "--adaptive_mixed_precision",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="""If it is false, you can customize the W-A-KV quantization precision. 
+        If it is true, the default 4-4-16 quantization is used, 
+        automatically selecting certain important positions to improve quantization precision.""",
+    )
+    parser.add_argument(
+        "--adapt_need_sample",
+        type=int,
+        default=0,
+        help="Number of samples used for analysis in adaptive mixed-precision quantization.",
+    )
+    parser.add_argument(
+        "--adapt_activation_percentage",
+        type=float,
+        default=1.0,
+        help="The percentage of all activated positions that increased from 4-bit quantization to 8-bit quantization.",
+    )
+
+
     # Use for eval
     parser.add_argument(
         "--trainable_scale",
@@ -122,6 +145,12 @@ def parser_gen():
         default=1.0,
         help="Clip ratio for activation quantization. new_max = max * clip_ratio",
     )
+    parser.add_argument(
+        "--a_init_type",
+        type=str,
+        default="mean",
+        help="mean or maxmin",
+    )
 
     # Weight Quantization Arguments
     parser.add_argument(
@@ -148,6 +177,12 @@ def parser_gen():
         default=1.0,
         help="""Clipping the weight quantization!
                         We do not support arguments for clipping and we find the best clip ratio during the weight quantization""",
+    )
+    parser.add_argument(
+        "--w_init_type",
+        type=str,
+        default="mean",
+        help="mean or maxmin",
     )
 
     # General Quantization Arguments
@@ -215,6 +250,12 @@ def parser_gen():
         default=1.0,
         help="Clip ratio for v-cache quantization. new_max = max * clip_ratio",
     )
+    parser.add_argument(
+        "--v_init_type",
+        type=str,
+        default="mean",
+        help="mean or maxmin",
+    )
 
     parser.add_argument(
         "--k_bits",
@@ -239,6 +280,12 @@ def parser_gen():
         type=float,
         default=1.0,
         help="Clip ratio for k-cache quantization. new_max = max * clip_ratio",
+    )
+    parser.add_argument(
+        "--k_init_type",
+        type=str,
+        default="mean",
+        help="mean or maxmin",
     )
 
     args, unknown = parser.parse_known_args()
@@ -266,6 +313,7 @@ def process_args_ptq():
     all_qconfigs.activation.granularity = getattr(ptq_args, "granularity")
     all_qconfigs.activation.need_sample_for_static_init = getattr(ptq_args, "need_sample_for_static_init")
     all_qconfigs.activation.warmup_step = torch.tensor(getattr(ptq_args, "warmup_step"))
+    all_qconfigs.activation.init_type = getattr(ptq_args, "a_init_type")
 
     all_qconfigs.activation.num_bits = getattr(ptq_args, "a_bits")
     all_qconfigs.activation.is_symmetric = getattr(ptq_args, "a_sym")
@@ -278,6 +326,7 @@ def process_args_ptq():
     all_qconfigs.weight.mode = getattr(ptq_args, "mode")
     all_qconfigs.weight.granularity = getattr(ptq_args, "granularity")
     all_qconfigs.weight.need_sample_for_static_init = getattr(ptq_args, "need_sample_for_static_init")
+    all_qconfigs.weight.init_type = getattr(ptq_args, "w_init_type")
 
     all_qconfigs.weight.num_bits = getattr(ptq_args, "w_bits")
     all_qconfigs.weight.is_symmetric = getattr(ptq_args, "w_sym")
@@ -299,6 +348,7 @@ def process_args_ptq():
     all_qconfigs.key.granularity = getattr(ptq_args, "granularity")
     all_qconfigs.key.need_sample_for_static_init = getattr(ptq_args, "need_sample_for_static_init")
     all_qconfigs.key.warmup_step = torch.tensor(getattr(ptq_args, "warmup_step"))
+    all_qconfigs.key.init_type = getattr(ptq_args, "k_init_type")
 
     all_qconfigs.key.num_bits = getattr(ptq_args, "k_bits")
     all_qconfigs.key.is_symmetric = getattr(ptq_args, "k_sym")
@@ -310,6 +360,7 @@ def process_args_ptq():
     all_qconfigs.value.granularity = getattr(ptq_args, "granularity")
     all_qconfigs.value.need_sample_for_static_init = getattr(ptq_args, "need_sample_for_static_init")
     all_qconfigs.value.warmup_step = torch.tensor(getattr(ptq_args, "warmup_step"))
+    all_qconfigs.value.init_type = getattr(ptq_args, "v_init_type")
 
     all_qconfigs.value.num_bits = getattr(ptq_args, "v_bits")
     all_qconfigs.value.is_symmetric = getattr(ptq_args, "v_sym")
