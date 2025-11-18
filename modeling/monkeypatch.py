@@ -7,6 +7,7 @@ from tqdm import tqdm
 
 from train.config import QuantizeConfig
 from train.train_parameter import FakeQuantizer
+from utils.utils import log
 
 
 def copy_func_with_new_globals(f, globals=None):
@@ -115,21 +116,45 @@ class VQuantWrapper(torch.nn.Module):
         value_states = value_states.view(bsz, q_len, -1)
         return value_states
 
-
-def add_qk_rotation_wrapper_after_function_call_in_forward(module, function_name, *args, **kwargs):
+  
+def add_qk_rotation_wrapper_after_function_call_in_forward(module, function_name, model_type, local_rank, *args, **kwargs):
     """
     This function adds a rotation wrapper after the output of a function call in forward.
     Only calls directly in the forward function are affected. calls by other functions called in forward are not affected.
     """
     attr_name = f"{function_name}_qk_rotation_wrapper"
     assert not hasattr(module, attr_name)
+    # 获取 forward 方法的全局变量
+    import inspect
+    forward_globals = module.forward.__globals__
+    
+    # 如果函数不在全局变量中，尝试查找
+    if function_name not in forward_globals:
+        # 查找可能的函数位置
+        modeling_locations = {
+            "llama": "transformers.models.llama.modeling_llama",
+            "qwen2": "transformers.models.qwen2.modeling_qwen2",
+            "qwen3": "transformers.models.qwen3.modeling_qwen3",
+        }   
+        try:
+            location = modeling_locations[model_type]
+            module_obj = __import__(location, fromlist=[function_name])
+            func = getattr(module_obj, function_name)
+            forward_globals[function_name] = func
+            if local_rank == 0:
+                log.info(f"Found {function_name} in {location}")
+        except (ImportError, AttributeError):
+            raise ValueError(f"Warning: {function_name} not found in standard locations")
+           
+    # 现在应该能在全局变量中找到函数
     wrapper = add_wrapper_after_function_call_in_method(
-        module,
-        "forward",
-        function_name,
+        module, 
+        "forward", 
+        function_name, 
         functools.partial(QKRotationQuantWrapper, *args, **kwargs),
     )
     setattr(module, attr_name, wrapper)
+
 
 def add_v_quant_wrapper_after_function_call_in_forward(module, function_name, *args, **kwargs):
     """
@@ -159,6 +184,8 @@ def add_qkv_rotation_quant(model, R3_list, k_quant_config: QuantizeConfig, v_qua
         add_qk_rotation_wrapper_after_function_call_in_forward(
             layer.self_attn,
             qk_rope_function_name,
+            model.config.model_type,
+            local_rank,
             R3=R3_list[i],
             k_quant_config=k_quant_config,
             to_quant=to_quant

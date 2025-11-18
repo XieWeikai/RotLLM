@@ -13,6 +13,7 @@ from .train_parameter import LearnRotateModule, NoLearnRotateModule, FakeQuantiz
 from modeling.monkeypatch import add_qkv_rotation_quant
 from utils.utils import get_local_rank, log
 from utils.adapt_mix_precision import adapt_modify_fakequant_configs, collect_fakequant_configs
+from attention.core import Quant_scaled_dot_product_attention
 
 
 def untie_word_embeddings(model):
@@ -318,6 +319,10 @@ def prepare_model(model, quant_configs: AllQuantizeConfigs, ptq_args, batch: Opt
     
     # 必须要先将所有的 linear 替换成 RotationQuantLinear，然后再调用下面函数为 Value 添加量化操作，同时还对 Query、Key 添加在线旋转 R3、量化操作
     add_qkv_rotation_quant(model, R3, quant_configs.key, quant_configs.value, local_rank=local_rank)
+    
+
+    if ptq_args.sageattn:
+        torch.nn.functional.scaled_dot_product_attention = Quant_scaled_dot_product_attention
 
     # Adjust the settings of the quantizer for special layers, change the config.
     model = set_special_quantization_configuration(model, ptq_args) 

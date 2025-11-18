@@ -20,6 +20,7 @@ from .static_rtn import static_rtn_fwrd
 from .trainable_static_rtn import trainable_static_rtn_fwrd
 from modeling.monkeypatch import add_qkv_rotation_quant
 from utils.utils import log
+from attention.core import Quant_scaled_dot_product_attention
 
 def set_special_quantization_configuration(model, ptq_args):
     subset = collect_fakequant_configs(model)
@@ -139,6 +140,8 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
     # 必须要先将所有的 linear 替换成 RotationQuantLinear，然后再调用下面函数为 Value 添加量化操作，同时还对 Query、Key 添加在线旋转 R3、量化操作
     add_qkv_rotation_quant(model, R3, quant_configs.key, quant_configs.value)
 
+    if ptq_args.sageattn:
+        torch.nn.functional.scaled_dot_product_attention = Quant_scaled_dot_product_attention
 
     # Adjust the settings of the quantizer for the special layer, change the config, 
     # and set the weight config to 16 bits (i.e., not quantized, since it has already been quantized previously).

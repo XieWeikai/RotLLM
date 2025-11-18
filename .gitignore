@@ -8,3 +8,4 @@ RotLLM.egg-info/
 *test*.py
 *delete*.py
 txt/
+test/

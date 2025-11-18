@@ -76,6 +76,8 @@ def eval() -> None:
     
     # Prepare the model
     model = prepare_model(model, dataset, quant_configs, ptq_args, model_args, batch)
+    # from attention.core import Quant_scaled_dot_product_attention
+    # torch.nn.functional.scaled_dot_product_attention = Quant_scaled_dot_product_attention
 
     log.info("Model init completed for evaling...")
     log.info("💡Start to eval...")

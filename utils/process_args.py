@@ -90,6 +90,13 @@ def parser_gen():
         default=True,
         help="""Decide whether to test all tasks. If true, test all task metrics; if false, only test PPL.""",
     )
+    parser.add_argument(
+        "--sageattn",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="""Decide whether to use the SageAttention quantization method. 
+        Note: sageattn=true and k_bits, v_bits < 16 cannot both be true at the same time, otherwise it will cause duplicate quantization.""",
+    )
 
     # Used for static quantization
     parser.add_argument(

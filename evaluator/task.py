@@ -259,8 +259,9 @@ def task_baseline(model, tokenizer):
     # # MODEL_PATH = "/data/share/Llama-3.2-3B-Instruct"
     # # MODEL_PATH = "/data/share/Qwen2.5-3B-Instruct"
     # MODEL_PATH = "/data/share/SmolLM2-1.7B-Instruct"
+    # # MODEL_PATH = "/data/share/Qwen3-1.7B"
 
-    # device = "cuda:2"
+    # device = "cuda:7"
     # dtype = torch.float16
 
     # # Prepare the model
