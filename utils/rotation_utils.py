@@ -23,10 +23,17 @@ def random_orthogonal_matrix(size, device):
     q *= torch.sign(torch.diag(r)).unsqueeze(0)
     return q
 
+
+def identity_matrix(size, device):
+    return torch.eye(size, dtype=torch.float32).to(device)
+
+
 def get_orthogonal_matrix(size, mode, device="cpu"):
     if mode == 'random':
         return random_orthogonal_matrix(size, device)
     elif mode == 'hadamard':
         return random_hadamard_matrix(size, device)
+    elif mode == "identity":
+        return identity_matrix(size, device)
     else:
         raise ValueError(f'Unknown mode {mode}')

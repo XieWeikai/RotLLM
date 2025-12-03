@@ -10,10 +10,9 @@ from .train_parameter import FakeQuantizer
 my_Flinear = F.linear
 
 class RotationQuantLinear(nn.Module):
-    def __init__(self, config: AllQuantizeConfigs, linear: nn.Linear, num_bits=8, rotation_pos="none", R_pre = None, R_post = None):
+    def __init__(self, config: AllQuantizeConfigs, linear: nn.Linear, rotation_pos="none", R_pre = None, R_post = None):
         super().__init__()
         self.config = config
-        self.num_bits = num_bits
         self.rotation_pos = rotation_pos
         self.R_pre = R_pre
         self.R_post = R_post
@@ -23,6 +22,7 @@ class RotationQuantLinear(nn.Module):
         self.actQuant = FakeQuantizer(copy.deepcopy(self.config.activation))
         self.weightQuant = FakeQuantizer(copy.deepcopy(self.config.weight))
         self.biasQuant = FakeQuantizer(copy.deepcopy(self.config.bias))
+        self.outActQuant = FakeQuantizer(copy.deepcopy(self.config.out_activation))
 
 
     def forward(self, x):
@@ -65,13 +65,10 @@ class RotationQuantLinear(nn.Module):
 
         x_q, w_q, b_q = self.allQuant(x, w, b)  # FakeQuant
 
-        # x_q = x
-        # w_q = w
-        # b_q = b
-
-        # y = F.linear(x_q, w_q, b_q)
-        y = my_Flinear(x_q, w_q, b_q)
-        return y
+        y = my_Flinear(x_q, w_q, b_q) 
+        y_q = self.outActQuant(y)
+            
+        return y_q
     
 
     def allQuant(self, x, w, b):

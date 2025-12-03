@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 
-from .config import QuantizeConfig, WeightQuantizeConfig, ActivationQuantizeConfig, KeyQuantizeConfig, ValueQuantizeConfig
+from .config import QuantizeConfig, WeightQuantizeConfig, ActivationQuantizeConfig, QueryQuantizeConfig, KeyQuantizeConfig, ValueQuantizeConfig, OutActivationQuantizeConfig
 from .quantizer import (
     compute_n_bits_min_max, 
     compute_qparams_dynamic, 
@@ -97,7 +97,7 @@ class FakeQuantizer(nn.Module):
             return input
         if self.config.mode == 'static':    # Only Support per-tensor and per-channel quantizer
             input_q = input
-            if isinstance(self.config, (ActivationQuantizeConfig, KeyQuantizeConfig, ValueQuantizeConfig)):
+            if isinstance(self.config, (ActivationQuantizeConfig, KeyQuantizeConfig, ValueQuantizeConfig, OutActivationQuantizeConfig)):
                 if self.config.need_sample_for_static_init > 0:
                     if self.config.init_type == 'mean':
                         self.init_activation_scale_and_zero_point_mean(input)
@@ -120,10 +120,17 @@ class FakeQuantizer(nn.Module):
                     self.qmin, self.qmax = compute_n_bits_min_max(self.config)
                     input_q = StaticLearnableFakeQuantizeFunction.apply(input, self.scale, self.zero_point, self.qmin, self.qmax)       
         elif self.config.mode == 'dynamic': # Only Support per-channel and per-group quantizer
-            input_type = input.dtype
-            self.qmin, self.qmax = compute_n_bits_min_max(self.config)
-            self.scale, self.zero_point = compute_qparams_dynamic(input.data, self.config, self.qmin, self.qmax)    # 这里使用 .data 避免进入计算图，避免导致 mse 分支的张量占用大量显存不释放
-            input_q = DynamicUnLearnableFakeQuantizeFunction.apply(input, self.scale, self.zero_point, self.qmin, self.qmax).to(dtype=input_type)
+            if isinstance(self.config, (QueryQuantizeConfig, KeyQuantizeConfig, ValueQuantizeConfig)):
+                input_type = input.dtype
+                from attention.static.quant_per_block import per_block_int8
+                self.scale = per_block_int8(input, bits=self.config.num_bits)
+                from train.quantizer import DynamicUnLearnableQKVFakeQuantizeFunction
+                input_q = DynamicUnLearnableQKVFakeQuantizeFunction.apply(input, self.scale).to(dtype=input_type)
+            else:
+                input_type = input.dtype
+                self.qmin, self.qmax = compute_n_bits_min_max(self.config)
+                self.scale, self.zero_point = compute_qparams_dynamic(input.data, self.config, self.qmin, self.qmax)    # 这里使用 .data 避免进入计算图，避免导致 mse 分支的张量占用大量显存不释放
+                input_q = DynamicUnLearnableFakeQuantizeFunction.apply(input, self.scale, self.zero_point, self.qmin, self.qmax).to(dtype=input_type)
             
         return input_q
 

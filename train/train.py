@@ -85,13 +85,13 @@ def train() -> None:
     if ptq_args.mode == "static":
         # Prepare the calibration set for static quantization, used to initialize scale and zero_point
         num_samples = ptq_args.need_sample_for_static_init
-        if ptq_args.adaptive_mixed_precision:
+        if ptq_args.adaptive_mixed_precision or ptq_args.adaptive_online_rotation_R4:
             num_samples += ptq_args.adapt_need_sample
         samples = [train_data[i + 10]["input_ids"] for i in range(num_samples)]
         batch = torch.tensor(samples).to(device=model_orig.device)
 
     # Prepare the trainable model and set parameters for training.
-    model, R_trainable_parameters, q_trainable_parameters = prepare_model(
+    model, adaptive_R4, R_trainable_parameters, q_trainable_parameters = prepare_model(
         model_orig,  
         quant_configs, 
         ptq_args,
@@ -107,7 +107,7 @@ def train() -> None:
     optimizer = SGDG(
         [
             {"params": R_trainable_parameters, "lr": training_args.learning_rate, "stiefel": True},
-            {"params": q_trainable_parameters, "lr": training_args.learning_rate / 10}
+            {"params": q_trainable_parameters, "lr": training_args.learning_rate / 10, "momentum": 0.0},
         ],
         lr=training_args.learning_rate
     )
@@ -139,7 +139,11 @@ def train() -> None:
         
     fq_dict = collect_fakequant_configs(model, "txt/after_train_quant_config.txt", write_to_file=True)
     for key, value in fq_dict.items():
-        R_dict[f"{key}.config.num_bits"] = value.num_bits
+        if "outActQuant" not in key:
+            R_dict[f"{key}.config.num_bits"] = value.num_bits
+
+    # 保存需要 online rotation R4 的层
+    R_dict["adaptive_R4"] = adaptive_R4       
 
     if local_rank == 0:
         path = model_args.output_rotation_path

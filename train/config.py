@@ -26,6 +26,15 @@ class ActivationQuantizeConfig(QuantizeConfig):
     warmup_step: torch.Tensor = torch.tensor(0)
     warmup_share_parameter_num: int = 1
     
+@dataclasses.dataclass
+class OutActivationQuantizeConfig(QuantizeConfig):
+    """
+    OutActivation quantization config.
+    """
+    int8_down_proj: bool = False
+    warmup_step: torch.Tensor = torch.tensor(0)
+    warmup_share_parameter_num: int = 1
+
 
 @dataclasses.dataclass
 class WeightQuantizeConfig(QuantizeConfig):
@@ -51,6 +60,13 @@ class BiasQuantizeConfig(QuantizeConfig):
     """
     num_bits: int = 16
 
+@dataclasses.dataclass
+class QueryQuantizeConfig(QuantizeConfig):
+    """
+    Key quantization config.
+    """
+    warmup_step: torch.Tensor = torch.tensor(0)
+    warmup_share_parameter_num: int = 1
 
 @dataclasses.dataclass
 class KeyQuantizeConfig(QuantizeConfig):
@@ -75,6 +91,8 @@ class AllQuantizeConfigs:
     activation: ActivationQuantizeConfig = dataclasses.field(default_factory=ActivationQuantizeConfig)
     weight: WeightQuantizeConfig = dataclasses.field(default_factory=WeightQuantizeConfig)
     bias: BiasQuantizeConfig = dataclasses.field(default_factory=BiasQuantizeConfig)
+    query: QueryQuantizeConfig = dataclasses.field(default_factory=QueryQuantizeConfig)
     key: KeyQuantizeConfig = dataclasses.field(default_factory=KeyQuantizeConfig)
     value: ValueQuantizeConfig = dataclasses.field(default_factory=ValueQuantizeConfig)
+    out_activation: OutActivationQuantizeConfig = dataclasses.field(default_factory=OutActivationQuantizeConfig)
 

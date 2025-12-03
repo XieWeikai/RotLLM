@@ -29,7 +29,10 @@ def change_config_for_static_quant(model, ptq_args):
                     if ptq_args.int8_down_proj:
                         module.config.num_bits = 8
 
-
+            # out_activation:
+            if ptq_args.oa_bits < 16 and "outActQuant" in name:
+                if "lm_head" in name:
+                    module.config.num_bits = 16
 
 def find_qlayers(module, layers=[RotationQuantLinear, RotationEmbedding], name: str = ""):
     if type(module) in [RotationEmbedding] and type(module) in layers:

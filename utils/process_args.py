@@ -23,7 +23,10 @@ class ModelArguments:
     )
     output_rotation_path: Optional[str] = field(
         default="test-output", metadata={"help": "Output rotation checkpoint path"}
-    )  
+    ) 
+    convert_model_path: Optional[str] = field(
+        default=None, metadata={"help": "Convert model path"}
+    ) 
 
 
 @dataclass
@@ -54,6 +57,13 @@ def parser_gen():
         automatically selecting certain important positions to improve quantization precision.""",
     )
     parser.add_argument(
+        "--adaptive_online_rotation_R4",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="""If it is false, We add rotation matrix R4 before all down_proj layers. 
+        If it is true, automatically selecting certain important positions to add rotation matrix R4.""",
+    )
+    parser.add_argument(
         "--adapt_need_sample",
         type=int,
         default=0,
@@ -64,6 +74,12 @@ def parser_gen():
         type=float,
         default=1.0,
         help="The percentage of all activated positions that increased from 4-bit quantization to 8-bit quantization.",
+    )
+    parser.add_argument(
+        "--adapt_R4_percentage",
+        type=float,
+        default=1.0,
+        help="The percentage of adding online rotation matrix R4.",
     )
 
 
@@ -154,6 +170,40 @@ def parser_gen():
     )
     parser.add_argument(
         "--a_init_type",
+        type=str,
+        default="mean",
+        help="mean or maxmin",
+    )
+
+
+    # Out Activation Quantization Arguments
+    parser.add_argument(
+        "--oa_bits",
+        type=int,
+        default=16,
+        help="""Number of bits for outputs of the Linear layers. This will be
+                        for all the linear layers in the model (including down-projection and out-projection)""",
+    )
+    parser.add_argument(
+        "--oa_groupsize",
+        type=int,
+        default=-1,
+        help="Groupsize for activation quantization. Note that this should be the same as w_groupsize",
+    )
+    parser.add_argument(
+        "--oa_sym",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="ASymmetric Activation quantization (default: False)",
+    )
+    parser.add_argument(
+        "--oa_clip_ratio",
+        type=float,
+        default=1.0,
+        help="Clip ratio for activation quantization. new_max = max * clip_ratio",
+    )
+    parser.add_argument(
+        "--oa_init_type",
         type=str,
         default="mean",
         help="mean or maxmin",
@@ -295,6 +345,37 @@ def parser_gen():
         help="mean or maxmin",
     )
 
+    parser.add_argument(
+        "--q_bits",
+        type=int,
+        default=16,
+        help="""Number of bits for query quantization.
+                        Note that quantizing the query needs another rotation for the keys/queries""",
+    )
+    parser.add_argument(
+        "--q_groupsize", 
+        type=int, 
+        default=-1,
+    )
+    parser.add_argument(
+        "--q_sym",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="ASymmetric query quantization",
+    )
+    parser.add_argument(
+        "--q_clip_ratio",
+        type=float,
+        default=1.0,
+        help="Clip ratio for query quantization. new_max = max * clip_ratio",
+    )
+    parser.add_argument(
+        "--q_init_type",
+        type=str,
+        default="mean",
+        help="mean or maxmin",
+    )
+
     args, unknown = parser.parse_known_args()
     return args, unknown
 
@@ -350,6 +431,20 @@ def process_args_ptq():
     # Bias: 不做任何量化，但保留该接口
     all_qconfigs.bias.num_bits = 16
 
+
+    # query 
+    all_qconfigs.query.mode = getattr(ptq_args, "mode")
+    all_qconfigs.query.granularity = getattr(ptq_args, "granularity")
+    all_qconfigs.query.need_sample_for_static_init = getattr(ptq_args, "need_sample_for_static_init")
+    all_qconfigs.query.warmup_step = torch.tensor(getattr(ptq_args, "warmup_step"))
+    all_qconfigs.query.init_type = getattr(ptq_args, "q_init_type")
+
+    all_qconfigs.query.num_bits = getattr(ptq_args, "q_bits")
+    all_qconfigs.query.is_symmetric = getattr(ptq_args, "q_sym")
+    all_qconfigs.query.groupsize = getattr(ptq_args, "q_groupsize")
+    all_qconfigs.query.clip_ratio = getattr(ptq_args, "q_clip_ratio")
+
+
     # key 
     all_qconfigs.key.mode = getattr(ptq_args, "mode")
     all_qconfigs.key.granularity = getattr(ptq_args, "granularity")
@@ -373,5 +468,23 @@ def process_args_ptq():
     all_qconfigs.value.is_symmetric = getattr(ptq_args, "v_sym")
     all_qconfigs.value.groupsize = getattr(ptq_args, "v_groupsize")
     all_qconfigs.value.clip_ratio = getattr(ptq_args, "v_clip_ratio")
+
+    # all_qconfigs.query.mode = "dynamic"
+    # all_qconfigs.key.mode = "dynamic"
+    # all_qconfigs.value.mode = "dynamic"
+
+    # out_activation
+    all_qconfigs.out_activation.mode = getattr(ptq_args, "mode")
+    all_qconfigs.out_activation.granularity = getattr(ptq_args, "granularity")
+    all_qconfigs.out_activation.need_sample_for_static_init = getattr(ptq_args, "need_sample_for_static_init")
+    all_qconfigs.out_activation.warmup_step = torch.tensor(getattr(ptq_args, "warmup_step"))
+    all_qconfigs.out_activation.init_type = getattr(ptq_args, "oa_init_type")
+
+    all_qconfigs.out_activation.num_bits = getattr(ptq_args, "oa_bits")
+    all_qconfigs.out_activation.is_symmetric = getattr(ptq_args, "oa_sym")
+    all_qconfigs.out_activation.groupsize = getattr(ptq_args, "oa_groupsize")
+    all_qconfigs.out_activation.clip_ratio = getattr(ptq_args, "oa_clip_ratio")
+
+    all_qconfigs.out_activation.int8_down_proj = getattr(ptq_args, "int8_down_proj")
 
     return model_args, training_args, ptq_args, all_qconfigs

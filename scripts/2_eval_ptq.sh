@@ -16,7 +16,7 @@
 # For example: bash scripts/2_eval_ptq.sh /data/share/SmolLM2-1.7B-Instruct 4 4 4
 # For example: bash scripts/2_eval_ptq.sh /data/share/Qwen3-1.7B 4 4 4
 export HF_ENDPOINT=https://hf-mirror.com
-CUDA_VISIBLE_DEVICES=7 python -m evaluator.ptq \
+CUDA_VISIBLE_DEVICES=1 python -m evaluator.ptq \
 --input_model $1 \
 --do_train False \
 --do_eval True \
@@ -32,16 +32,25 @@ CUDA_VISIBLE_DEVICES=7 python -m evaluator.ptq \
 --need_sample_for_static_init 16 \
 --a_init_type "mean" \
 --w_init_type "mean" \
+--oa_init_type "maxmin" \
 --w_bits $2 \
 --a_bits $3 \
+--q_bits $4 \
 --k_bits $4 \
 --v_bits $4 \
+--oa_bits $5 \
 --w_mse \
 --no-a_sym \
+--no-q_sym \
 --no-k_sym \
 --no-v_sym \
+--no-oa_sym \
 --k_groupsize 128 \
 --v_groupsize 128 \
---output_rotation_path "/data/zjh/tensor_1020/smolLM_it_8_8_16.bin" \
+--output_rotation_path "/data/zjh/tensor_qwen3_again/qwen3_4_8_16_16_01_001_512_512_mean_momentum.bin" \
 --no-task \
---sageattn \
+--no-sageattn \
+--no-adaptive_mixed_precision \
+--adapt_need_sample 4 \
+--adapt_activation_percentage 0.06 \
+# --convert_model_path "/data/zjh/model_pth/Qwen3-rotated.pth" \

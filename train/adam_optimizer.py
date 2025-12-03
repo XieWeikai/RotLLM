@@ -62,7 +62,7 @@ def qr_retraction(tan_vec):  # tan_vec, p-by-n, p <= n
 episilon = 1e-8 
 
 
-class SGDG_Adam(Optimizer):
+class SGDG(Optimizer):
     r"""This optimizer updates variables with two different routines
         based on the boolean variable 'stiefel'.
 
@@ -115,30 +115,10 @@ class SGDG_Adam(Optimizer):
         )
         if nesterov and (momentum <= 0 or dampening != 0):
             raise ValueError("Nesterov momentum requires a momentum and zero dampening")
-        super(SGDG_Adam, self).__init__(params, defaults)
-
-        # 保存非 Stiefel 参数列表
-        non_stiefel_params = []
-        adam_lr = 1e-3
-
-        for group in self.param_groups:
-            if not group.get("stiefel", False):
-                non_stiefel_params += group['params']
-                adam_lr = group['lr']
-
-        print(len(non_stiefel_params))
-        print(adam_lr)
-
-        # 内部 Adam 优化器，只管理非 Stiefel 参数
-        if non_stiefel_params:
-            self.adam_opt = Adam(non_stiefel_params, lr=adam_lr)
-        else:
-            self.adam_opt = None
-
-        print(self.adam_opt)
+        super(SGDG, self).__init__(params, defaults)
 
     def __setstate__(self, state) -> None:
-        super(SGDG_Adam, self).__setstate__(state)
+        super(SGDG, self).__setstate__(state)
         for group in self.param_groups:
             group.setdefault("nesterov", False)
 
@@ -199,9 +179,58 @@ class SGDG_Adam(Optimizer):
                     p.data.copy_(p_new.view(p.size()))
                     V.copy_(V_new)
 
-                
-        # ---------------- 非 Stiefel 参数使用 Adam ----------------
-        if self.adam_opt is not None:
-            self.adam_opt.step()
+                else:
+                    d_p = p.grad.data
+                    #  defined.
+                    try:
+                        if weight_decay != 0:
+                            #  defined.
+                            d_p.add_(weight_decay, p.data)
+                    except:
+                        pass 
+                    if momentum != 0:
+                        param_state = self.state[p]
+                        if "momentum_buffer" not in param_state:
+                            buf = param_state["momentum_buffer"] = d_p.clone()
+                        else:
+                            buf = param_state["momentum_buffer"]
+                            #  always defined.
+                            buf.mul_(momentum).add_(1 - dampening, d_p)
+                        #  defined.
+                        if nesterov:
+                            d_p = d_p.add(momentum, buf)
+                        else:
+                            d_p = buf
+
+                    p.data.add_(-group["lr"], d_p)
 
         return loss
+
+
+class CombinedOptimizer(Optimizer):
+    def __init__(self, opt1, opt2):
+        self.opt1 = opt1
+        self.opt2 = opt2
+        self.param_groups = self.opt1.param_groups + self.opt2.param_groups
+
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            loss = closure()
+        self.opt1.step(closure)
+        self.opt2.step(closure)
+        return loss
+
+    def zero_grad(self, set_to_none=False):
+        self.opt1.zero_grad(set_to_none=set_to_none)
+        self.opt2.zero_grad(set_to_none=set_to_none)
+
+    def state_dict(self):
+        return {
+            "opt1": self.opt1.state_dict(),
+            "opt2": self.opt2.state_dict()
+        }
+
+    def load_state_dict(self, state_dict):
+        self.opt1.load_state_dict(state_dict["opt1"])
+        self.opt2.load_state_dict(state_dict["opt2"])

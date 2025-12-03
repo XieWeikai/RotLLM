@@ -75,6 +75,15 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
     R3 = [NoLearnRotateModule(get_orthogonal_matrix(head_dim, mode="hadamard", device=device)) for _ in range(num_layers)]
     R4 = [NoLearnRotateModule(get_orthogonal_matrix(hidden_dim, mode="hadamard", device=device)) for _ in range(num_layers)]  
 
+    # adaptive R4
+    if ptq_args.trainable_R:
+        assert model_args.output_rotation_path is not None, "We must give the output_rotation_path in the command line."
+        R_path = model_args.output_rotation_path
+        adaptive_R4 = torch.load(R_path)["adaptive_R4"]
+        if len(adaptive_R4) != 0:
+            for i in range(num_layers):
+                if not adaptive_R4[i]:
+                    R4[i] = NoLearnRotateModule(get_orthogonal_matrix(hidden_dim, mode="identity", device=device))
 
     # 添加在线旋转矩阵 R4
     model_type = model.config.model_type
@@ -138,7 +147,7 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
     )
 
     # 必须要先将所有的 linear 替换成 RotationQuantLinear，然后再调用下面函数为 Value 添加量化操作，同时还对 Query、Key 添加在线旋转 R3、量化操作
-    add_qkv_rotation_quant(model, R3, quant_configs.key, quant_configs.value)
+    add_qkv_rotation_quant(model, R3, quant_configs.query, quant_configs.key, quant_configs.value)
 
     if ptq_args.sageattn:
         torch.nn.functional.scaled_dot_product_attention = Quant_scaled_dot_product_attention
@@ -149,7 +158,7 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
         model = set_special_quantization_configuration(model, ptq_args)
     else:
         if ptq_args.trainable_scale:
-            trainable_static_rtn_fwrd(model, ptq_args, model_args) 
+            trainable_static_rtn_fwrd(model, batch, ptq_args, model_args) 
         else:
             static_rtn_fwrd(model, batch, ptq_args)
 

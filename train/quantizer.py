@@ -396,3 +396,34 @@ def update_activation_init_scale_and_zero_point(input, scale, zero_point, min_va
         grad_z = None
     
     return grad_scale, grad_z
+
+
+
+
+
+class DynamicUnLearnableQKVFakeQuantizeFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input, scale):
+        """
+        x_int:  [B, S, 2048, 64]
+        scale:  [B, S, 16, 1]   (16 blocks)
+        """
+        B, S, N, D = input.shape
+        _, _, n_blocks, _ = scale.shape # 2048/128 = 16
+        block_size = N // n_blocks
+
+        # reshape input into blocks
+        input = input.view(B, S, n_blocks, block_size, D)  # [4,32,16,128,64]
+
+        # expand scale for broadcasting
+        scale = scale.unsqueeze(-1)  # [4,32,16,1,1]
+
+        dequantized = torch.round(input / scale) * scale
+        dequantized = dequantized.view(B, S, N, D)
+        # print(dequantized.shape)
+
+        return dequantized      
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output, None, None, None, None

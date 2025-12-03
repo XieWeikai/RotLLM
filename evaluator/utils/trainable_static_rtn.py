@@ -4,6 +4,8 @@ from tqdm import tqdm
 
 from train.train_parameter import FakeQuantizer
 from train.train_model import RotationEmbedding, RotationQuantLinear
+from utils.utils import log 
+from utils.convert_model import convert_model 
 
 
 def change_config_for_static_quant(model, ptq_args):
@@ -28,6 +30,10 @@ def change_config_for_static_quant(model, ptq_args):
                     if ptq_args.int8_down_proj:
                         module.config.num_bits = 8
 
+            # out_activation:
+            if ptq_args.oa_bits < 16 and "outActQuant" in name:
+                if "lm_head" in name:
+                    module.config.num_bits = 16
 
 
 def find_qlayers(module, layers=[RotationQuantLinear, RotationEmbedding], name: str = ""):
@@ -45,7 +51,7 @@ def find_qlayers(module, layers=[RotationQuantLinear, RotationEmbedding], name: 
     return res
 
 
-def trainable_static_rtn_fwrd(model, ptq_args, model_args):
+def trainable_static_rtn_fwrd(model, batch, ptq_args, model_args):
     """
     遍历 model，找到所有 FakeQuantizer 对象
     
@@ -80,7 +86,25 @@ def trainable_static_rtn_fwrd(model, ptq_args, model_args):
 
         if num_bits_name in data.keys():
             module.config.num_bits = data[num_bits_name]
-        else:
-            print("****")
-            print(num_bits_name)
-            print("****")
+        # else:
+        #     print("****")
+        #     print(num_bits_name)
+        #     print("****")
+            
+        # if "outActQuant" in name or "down_proj.actQuant" in name:
+        # if "outActQuant" in name:
+        #     module.config.need_sample_for_static_init = 16
+
+    # model.eval()
+    # with torch.no_grad(): 
+    #     for i in tqdm(range(batch.size(0)), desc="Init scale and zero_point for static quant"):
+    #         sample = batch[i].unsqueeze(0)  # 保持 batch 维度
+    #         model(sample)
+    #     log.info("✅ Init scale and zero_point ok!")
+
+
+
+    # if model_args.convert_model_path is not None:
+    #     convert_model(model, model_args.convert_model_path)
+
+        

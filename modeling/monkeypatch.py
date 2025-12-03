@@ -3,6 +3,7 @@ import copy
 import functools
 import types
 from tqdm import tqdm
+import inspect
 
 
 from train.config import QuantizeConfig
@@ -32,6 +33,7 @@ def add_wrapper_after_function_call_in_method(
     method_name,
     function_name,
     wrapper_fn,
+    unwrap=False
 ):
     """
     This function adds a wrapper after the output of a function call in the method named `method_name`.
@@ -39,6 +41,8 @@ def add_wrapper_after_function_call_in_method(
     """
 
     original_method = getattr(module, method_name).__func__
+    if unwrap:
+        original_method = inspect.unwrap(original_method)
     method_globals = dict(original_method.__globals__)
     wrapper = wrapper_fn(method_globals[function_name])
     method_globals[function_name] = wrapper
@@ -48,17 +52,20 @@ def add_wrapper_after_function_call_in_method(
 
 
 class QKRotationQuantWrapper(torch.nn.Module):
-    def __init__(self, func, R3, k_quant_config: QuantizeConfig, to_quant: bool = True):
+    def __init__(self, func, R3, q_quant_config: QuantizeConfig, k_quant_config: QuantizeConfig, to_quant: bool = True):
         super().__init__()
         self.func = func
 
+        self.q_quant_config = copy.deepcopy(q_quant_config)
         self.k_quant_config = copy.deepcopy(k_quant_config)
 
         # Optional Rotation Matrix
         self.R3 = R3
         if to_quant:
+            self.qQuant = FakeQuantizer(self.q_quant_config)
             self.kQuant = FakeQuantizer(self.k_quant_config)
         else:
+            self.qQuant = None
             self.kQuant = None
 
     def forward(self, *args, **kwargs):
@@ -77,13 +84,18 @@ class QKRotationQuantWrapper(torch.nn.Module):
         
         # Transpose: To unify the second dimension of the input parameter scale of StaticLearnableFakeQuantizeFunction as seqlen
         # In order to uniformly perform truncation on this dimension in StaticLearnableFakeQuantizeFunction
-        key_states = key_states.transpose(1, 2)
+        # query_states = query_states.transpose(1, 2)
+        # key_states = key_states.transpose(1, 2)
+        # Query:
+        if self.qQuant is not None:
+            query_states = self.qQuant(query_states)
         # Key:
         if self.kQuant is not None:
             key_states = self.kQuant(key_states)
 
         # Transpose again: to prevent affecting subsequent calculations
-        key_states = key_states.transpose(1, 2)
+        # query_states = query_states.transpose(1, 2)
+        # key_states = key_states.transpose(1, 2)
 
         return query_states, key_states
 
@@ -106,12 +118,12 @@ class VQuantWrapper(torch.nn.Module):
         bsz, q_len, _ = value_states.size()
 
         # 可能会根据不同模型做出对应的调整
-        value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim)
+        value_states = value_states.view(bsz, self.num_key_value_heads, q_len, self.head_dim)
 
         # Value:
         if self.vQuant is not None:
             value_states = self.vQuant(value_states)
-
+        # print(value_states.shape)
         # reshape back to original shape (bsz, q_len, hidden_size)
         value_states = value_states.view(bsz, q_len, -1)
         return value_states
@@ -124,34 +136,12 @@ def add_qk_rotation_wrapper_after_function_call_in_forward(module, function_name
     """
     attr_name = f"{function_name}_qk_rotation_wrapper"
     assert not hasattr(module, attr_name)
-    # 获取 forward 方法的全局变量
-    import inspect
-    forward_globals = module.forward.__globals__
-    
-    # 如果函数不在全局变量中，尝试查找
-    if function_name not in forward_globals:
-        # 查找可能的函数位置
-        modeling_locations = {
-            "llama": "transformers.models.llama.modeling_llama",
-            "qwen2": "transformers.models.qwen2.modeling_qwen2",
-            "qwen3": "transformers.models.qwen3.modeling_qwen3",
-        }   
-        try:
-            location = modeling_locations[model_type]
-            module_obj = __import__(location, fromlist=[function_name])
-            func = getattr(module_obj, function_name)
-            forward_globals[function_name] = func
-            if local_rank == 0:
-                log.info(f"Found {function_name} in {location}")
-        except (ImportError, AttributeError):
-            raise ValueError(f"Warning: {function_name} not found in standard locations")
-           
-    # 现在应该能在全局变量中找到函数
     wrapper = add_wrapper_after_function_call_in_method(
         module, 
         "forward", 
         function_name, 
         functools.partial(QKRotationQuantWrapper, *args, **kwargs),
+        unwrap=True
     )
     setattr(module, attr_name, wrapper)
 
@@ -168,11 +158,12 @@ def add_v_quant_wrapper_after_function_call_in_forward(module, function_name, *a
         "forward",
         function_name,
         functools.partial(VQuantWrapper, *args, **kwargs),
+        unwrap=False
     )
     setattr(module, attr_name, wrapper)
 
 
-def add_qkv_rotation_quant(model, R3_list, k_quant_config: QuantizeConfig, v_quant_config: QuantizeConfig, to_quant: bool = True, local_rank=None):
+def add_qkv_rotation_quant(model, R3_list, q_quant_config: QuantizeConfig, k_quant_config: QuantizeConfig, v_quant_config: QuantizeConfig, to_quant: bool = True, local_rank=None):
     if local_rank is None:
         local_rank = 0
     qk_rope_function_name = "apply_rotary_pos_emb"
@@ -187,6 +178,7 @@ def add_qkv_rotation_quant(model, R3_list, k_quant_config: QuantizeConfig, v_qua
             model.config.model_type,
             local_rank,
             R3=R3_list[i],
+            q_quant_config=q_quant_config,
             k_quant_config=k_quant_config,
             to_quant=to_quant
         )
