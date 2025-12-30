@@ -7,7 +7,7 @@ def _attn_fwd_inner(acc, l_i, m_i, q, qk_scale, kv_len,
                     K_ptrs, V_ptrs, stride_kn, stride_vn, 
                     start_m,  
                     BLOCK_M: tl.constexpr, HEAD_DIM: tl.constexpr, BLOCK_N: tl.constexpr,  
-                    STAGE: tl.constexpr, offs_m: tl.constexpr, offs_n: tl.constexpr, BITS: tl.constexpr,  
+                    STAGE: tl.constexpr, offs_m: tl.constexpr, offs_n: tl.constexpr, quant_max: tl.constexpr,  
                     ):
     if STAGE == 1:
         lo, hi = 0, start_m * BLOCK_M
@@ -33,8 +33,8 @@ def _attn_fwd_inner(acc, l_i, m_i, q, qk_scale, kv_len,
 
         p = tl.math.exp2(qk)
 
-        quant_max = 127 if BITS == 8 else 32767
-        tl_dtype = tl.int8 if BITS == 8 else tl.int16
+        
+        tl_dtype = tl.int16
         
         p_int = p * quant_max
         p_int += 0.5 * tl.where(p_int >= 0, 1, -1)
@@ -71,7 +71,7 @@ def _attn_fwd(Q, K, V, Out, M,
               HEAD_DIM: tl.constexpr,
               BLOCK_M: tl.constexpr,  
               BLOCK_N: tl.constexpr, 
-              BITS: tl.constexpr,   
+              quant_max: tl.constexpr,   
               STAGE: tl.constexpr
               ):
     start_m = tl.program_id(0)
@@ -103,23 +103,22 @@ def _attn_fwd(Q, K, V, Out, M,
     acc, l_i, m_i = _attn_fwd_inner(acc, l_i, m_i, q, qk_scale, kv_len, K_ptrs, V_ptrs, stride_kn, stride_vn,
                                     start_m,  
                                     BLOCK_M, HEAD_DIM, BLOCK_N,  
-                                    4 - STAGE, offs_m, offs_n, BITS 
+                                    4 - STAGE, offs_m, offs_n, quant_max 
                                     )
 
     acc, l_i, m_i = _attn_fwd_inner(acc, l_i, m_i, q, qk_scale, kv_len, K_ptrs, V_ptrs, stride_kn, stride_vn,
                                     start_m,  
                                     BLOCK_M, HEAD_DIM, BLOCK_N,  
-                                    2, offs_m, offs_n, BITS 
+                                    2, offs_m, offs_n, quant_max 
                                     )
     acc = acc / l_i[:, None]
     tl.store(O_block_ptr, acc.to(Out.type.element_ty), mask = (offs_m[:, None] < qo_len))
 
-    quant_max = 127 if BITS == 8 else 32767
     tl.store(M_block_ptr, m_i + tl.math.log2(l_i / quant_max), mask = (offs_m < qo_len))
 
-def forward(q, k, v, M, sm_scale, bits=8, tensor_layout="HND", output_dtype=torch.float16):
+def forward(q, k, v, M, sm_scale, quant_max, tensor_layout="HND", output_dtype=torch.float16):
     BLOCK_M = 128
-    BLOCK_N = 64
+    BLOCK_N = 128
     stage = 3
 
     o = torch.empty(q.shape, dtype=output_dtype, device=q.device)
@@ -162,8 +161,8 @@ def forward(q, k, v, M, sm_scale, bits=8, tensor_layout="HND", output_dtype=torc
         qo_len, kv_len,
         h_qo, num_kv_groups,
         BLOCK_M=BLOCK_M, BLOCK_N=BLOCK_N, HEAD_DIM=HEAD_DIM_K,
-        BITS = bits,  
+        quant_max = quant_max,  
         STAGE=stage,  
         num_warps=4 if head_dim == 64 else 8,
-        num_stages=4)
+        num_stages=3)
     return o

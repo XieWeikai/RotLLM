@@ -21,6 +21,13 @@ def train() -> None:
     transformers.set_seed(ptq_args.seed)
     local_rank = get_local_rank()
 
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    # https://pytorch.org/docs/stable/generated/torch.use_deterministic_algorithms.html
+    os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':16:8'
+    # avoiding nondeterministic algorithms (see https://pytorch.org/docs/stable/notes/randomness.html)
+    torch.use_deterministic_algorithms(True)
+
     log.info("the rank is {}".format(local_rank))
     torch.distributed.barrier()
 
@@ -106,11 +113,20 @@ def train() -> None:
     # Applicable to RotLLM
     optimizer = SGDG(
         [
-            {"params": R_trainable_parameters, "lr": training_args.learning_rate, "stiefel": True},
-            {"params": q_trainable_parameters, "lr": training_args.learning_rate / 10, "momentum": 0.0},
+            {"params": R_trainable_parameters, "lr": training_args.learning_rate, "momentum": 0.0, "stiefel": True},
+            {"params": q_trainable_parameters, "lr": training_args.learning_rate, "momentum": 0.0, "nesterov": False},
         ],
         lr=training_args.learning_rate
     )
+
+    # from train.optimizer_adam import AdamG
+    # optimizer = AdamG(
+    #     [
+    #         {"params": R_trainable_parameters, "lr": training_args.learning_rate, "momentum": 0.9, "beta2": 0.999, "stiefel": True},
+    #         {"params": q_trainable_parameters, "lr": training_args.learning_rate, "momentum": 0.9, "beta2": 0.999, "nesterov": False},
+    #     ],
+    #     lr=training_args.learning_rate
+    # )
 
     MyTrainer = Trainer
 
@@ -153,6 +169,24 @@ def train() -> None:
             R_dict,
             path,
         )
+
+    if local_rank == 0:
+        dict = {}
+        from train.train_parameter import FakeQuantizer
+        for name, module in model.named_modules():
+            if isinstance(module, FakeQuantizer):
+                if hasattr(module, "scale"):
+                    dict[f"{name}.scale"] = module.scale
+                if hasattr(module, "zero_point"):
+                    dict[f"{name}.zero_point"] = module.zero_point
+        
+        with open("./txt/scale_train.txt", "w") as f:
+            for k, v in dict.items():
+                if v is None:
+                    f.write(f"{k}: None\n")
+                else:
+                    # 标量 scale / zero_point
+                    f.write(f"{k}: {v.detach().cpu().item()}\n")
 
     dist.barrier()
     

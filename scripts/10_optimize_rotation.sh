@@ -17,11 +17,11 @@
 # For example: bash scripts/10_optimize_rotation.sh /data/share/SmolLM2-1.7B-Instruct 4 4 4
 # For example: bash scripts/10_optimize_rotation.sh /data/share/Qwen3-1.7B 4 4 4
 export HF_ENDPOINT=https://hf-mirror.com
-CUDA_VISIBLE_DEVICES=0,7 torchrun --nnodes=1 --nproc_per_node=2 --master_port=25678 -m train.train \
+CUDA_VISIBLE_DEVICES=0,1 torchrun --nnodes=1 --nproc_per_node=2 --master_port=25678 -m train.train \
 --input_model $1  \
---output_rotation_path "/data/zjh/tensor_qwen3_again/qwen3_4_8_16_8_01_001_1024_1024_mean.bin" \
---output_dir "/data/zjh/tensor_qwen3_again/outputs" \
---logging_dir "/data/zjh/tensor_qwen3_again/logs" \
+--output_rotation_path "/data/zjh/tensor_grad_scale/smolLM2_4_48_16_16_005_005_1024_512_v_c1_backward.bin" \
+--output_dir "/data/zjh/tensor_grad_scale/outputs" \
+--logging_dir "/data/zjh/tensor_grad_scale/logs" \
 --model_max_length 2048 \
 --fp16 False \
 --bf16 True \
@@ -30,7 +30,7 @@ CUDA_VISIBLE_DEVICES=0,7 torchrun --nnodes=1 --nproc_per_node=2 --master_port=25
 --gradient_accumulation_steps 2 \
 --max_steps 1024 \
 --logging_steps 10 \
---learning_rate 0.1 \
+--learning_rate 0.05 \
 --weight_decay 0. \
 --lr_scheduler_type "cosine" \
 --gradient_checkpointing True \
@@ -40,7 +40,7 @@ CUDA_VISIBLE_DEVICES=0,7 torchrun --nnodes=1 --nproc_per_node=2 --master_port=25
 --mode "static" \
 --granularity "per_tensor" \
 --need_sample_for_static_init 16 \
---warmup_step 1024 \
+--warmup_step 512 \
 --w_bits $2 \
 --a_bits $3 \
 --q_bits $4 \
@@ -55,11 +55,12 @@ CUDA_VISIBLE_DEVICES=0,7 torchrun --nnodes=1 --nproc_per_node=2 --master_port=25
 --no-v_sym \
 --k_groupsize 128 \
 --v_groupsize 128 \
---a_init_type "mean" \
+--a_init_type "maxmin" \
 --oa_init_type "maxmin" \
 --no-adaptive_online_rotation_R4 \
---no-adaptive_mixed_precision \
+--adaptive_mixed_precision \
 --adapt_R4_percentage 0.1 \
---adapt_activation_percentage 0.1 \
+--adapt_activation_percentage 0.06 \
 --adapt_need_sample 4 \
 --no-sageattn \
+--max_grad_norm 1.0 \

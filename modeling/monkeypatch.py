@@ -84,8 +84,14 @@ class QKRotationQuantWrapper(torch.nn.Module):
         
         # Transpose: To unify the second dimension of the input parameter scale of StaticLearnableFakeQuantizeFunction as seqlen
         # In order to uniformly perform truncation on this dimension in StaticLearnableFakeQuantizeFunction
-        # query_states = query_states.transpose(1, 2)
-        # key_states = key_states.transpose(1, 2)
+        query_states = query_states.transpose(1, 2)
+        key_states = key_states.transpose(1, 2)
+
+        
+        # km = key_states.mean(dim=1, keepdim=True)
+        # key_states -= km
+
+        
         # Query:
         if self.qQuant is not None:
             query_states = self.qQuant(query_states)
@@ -94,8 +100,8 @@ class QKRotationQuantWrapper(torch.nn.Module):
             key_states = self.kQuant(key_states)
 
         # Transpose again: to prevent affecting subsequent calculations
-        # query_states = query_states.transpose(1, 2)
-        # key_states = key_states.transpose(1, 2)
+        query_states = query_states.transpose(1, 2)
+        key_states = key_states.transpose(1, 2)
 
         return query_states, key_states
 
@@ -118,12 +124,11 @@ class VQuantWrapper(torch.nn.Module):
         bsz, q_len, _ = value_states.size()
 
         # 可能会根据不同模型做出对应的调整
-        value_states = value_states.view(bsz, self.num_key_value_heads, q_len, self.head_dim)
+        value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim)
 
         # Value:
         if self.vQuant is not None:
             value_states = self.vQuant(value_states)
-        # print(value_states.shape)
         # reshape back to original shape (bsz, q_len, hidden_size)
         value_states = value_states.view(bsz, q_len, -1)
         return value_states

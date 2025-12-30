@@ -140,6 +140,24 @@ class SGDG(Optimizer):
                 if p.grad is None:
                     continue
 
+                # with open("./txt/grad_log_path_1.txt", "a") as f:
+                #     # 获取梯度数据
+                #     grad_data = p.grad.data
+                #     grad_data = grad_data.clamp(min=-0.01, max=0.01)
+                    
+                #     if grad_data.numel() == 1:
+                #         # 标量梯度情况
+                #         f.write(f"stiefel={stiefel}, grad={grad_data.item():.6e}\n")
+                    # else:
+                    #     # 向量 / 矩阵梯度情况
+                    #     f.write(
+                    #         f"stiefel={stiefel}, "
+                    #         f"shape={tuple(grad_data.shape)}, "
+                    #         f"max={grad_data.max().item():.6e}, "
+                    #         f"min={grad_data.min().item():.6e}, "
+                    #         f"mean={grad_data.mean().item():.6e}\n"
+                    #     )
+
                 unity, _ = unit(p.data.view(p.size()[0], -1))
                 if stiefel and unity.size()[0] <= unity.size()[1]:
                     weight_decay = group["weight_decay"]
@@ -163,7 +181,8 @@ class SGDG(Optimizer):
                             ].cuda()
 
                     V = param_state["momentum_buffer"]
-                    V = momentum * V - g.t()
+                    # V = momentum * V - g.t()
+                    V.mul_(momentum).add_(-1.0, g.t())
                     MX = torch.mm(V, unity)
                     XMX = torch.mm(unity, MX)
                     XXMX = torch.mm(unity.t(), XMX)
@@ -180,6 +199,7 @@ class SGDG(Optimizer):
 
                 else:
                     d_p = p.grad.data
+                    # d_p = d_p.clamp(min=-0.01, max=0.01)
                     #  defined.
                     try:
                         if weight_decay != 0:

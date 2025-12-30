@@ -262,7 +262,8 @@ class StaticLearnableFakeQuantizeFunction(torch.autograd.Function):
             # per-channel: 
             # grad_factor = 1.0 / math.sqrt((input.numel() // input.shape[-1]) * max_val)
             grad_factor = 1.0 / math.sqrt(input.shape[-1] * max_val)
-        
+
+        grad_factor = 1.0
         # 1. Input gradient
         grad_input = grad_output
         
@@ -309,6 +310,9 @@ class StaticLearnableFakeQuantizeFunction(torch.autograd.Function):
 
         assert torch.isfinite(grad_scale).all(), "grad_scale has NaN or Inf"
         assert torch.isfinite(grad_input).all(), "grad_input has NaN or Inf"
+
+        grad_scale = grad_scale.clamp(min=-0.1, max=0.1)
+        grad_z = grad_z.clamp(min=-0.1, max=0.1) if grad_z is not None else None
 
         input = input.to(input_type)
         return grad_input, grad_scale, grad_z, None, None, None, None    
@@ -403,26 +407,32 @@ def update_activation_init_scale_and_zero_point(input, scale, zero_point, min_va
 
 class DynamicUnLearnableQKVFakeQuantizeFunction(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input, scale):
+    def forward(ctx, input, scale, zero_point, min_val, max_val):
         """
-        x_int:  [B, S, 2048, 64]
-        scale:  [B, S, 16, 1]   (16 blocks)
+        x_int:  [B, 2048, S, 64]
+        scale:  [B, 16, S, 1]   (16 blocks)
         """
-        B, S, N, D = input.shape
-        _, _, n_blocks, _ = scale.shape # 2048/128 = 16
+        B, N, S, D = input.shape
+        _, n_blocks, _, _ = scale.shape # 2048/128 = 16
         block_size = N // n_blocks
 
         # reshape input into blocks
-        input = input.view(B, S, n_blocks, block_size, D)  # [4,32,16,128,64]
+        input = input.view(B, n_blocks, block_size, S, D)  # [4,32,16,128,64]
 
         # expand scale for broadcasting
-        scale = scale.unsqueeze(-1)  # [4,32,16,1,1]
+        scale = scale.unsqueeze(2)  # [4,32,16,1,1]
+        if zero_point is not None:
+            zero_point = zero_point.unsqueeze(2)
 
-        dequantized = torch.round(input / scale) * scale
-        dequantized = dequantized.view(B, S, N, D)
-        # print(dequantized.shape)
+        if zero_point is not None:
+            quantized = torch.clamp(torch.round(input / scale) + zero_point, min_val, max_val)
+            dequantized = (quantized - zero_point) * scale
+        else:
+            quantized = torch.clamp(torch.round(input / scale), min_val, max_val)
+            dequantized = quantized * scale
 
-        return dequantized      
+        dequantized = dequantized.view(B, N, S, D)
+        return dequantized
 
     @staticmethod
     def backward(ctx, grad_output):

@@ -13,7 +13,7 @@ from .train_parameter import LearnRotateModule, NoLearnRotateModule, FakeQuantiz
 from modeling.monkeypatch import add_qkv_rotation_quant
 from utils.utils import get_local_rank, log
 from utils.adapt_mix_precision import adapt_modify_quantization_precision, collect_fakequant_configs
-from attention.core import Quant_scaled_dot_product_attention
+from attention.my_sdpa import Quant_scaled_dot_product_attention
 from utils.adapt_online_rotation import adapt_choose_online_rotation
 
 
@@ -390,6 +390,24 @@ def prepare_model(model, quant_configs: AllQuantizeConfigs, ptq_args, batch: Opt
         if all(p is not r for r in R_trainable_parameters):
             new_q_trainable_parameters.append(p)
     q_trainable_parameters = new_q_trainable_parameters
+
+
+    R_dict = {}
+    for name, module in model.named_modules():
+        if isinstance(module, FakeQuantizer):
+            if hasattr(module, "scale"):
+                R_dict[f"{name}.scale"] = module.scale
+            if hasattr(module, "zero_point"):
+                R_dict[f"{name}.zero_point"] = module.zero_point
+    
+    with open("./txt/scale_init.txt", "w") as f:
+        for k, v in R_dict.items():
+            if v is None:
+                f.write(f"{k}: None\n")
+            else:
+                # 标量 scale / zero_point
+                f.write(f"{k}: {v.detach().cpu().item()}\n")
+            
 
     return model, adaptive_R4, R_trainable_parameters, q_trainable_parameters
     

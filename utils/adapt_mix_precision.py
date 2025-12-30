@@ -61,6 +61,11 @@ def adapt_modify_quantization_precision(model, adaptive_R4, batch, batch_find_th
     with torch.no_grad():
         _ = model(batch_find_threshold)
 
+    """移除所有钩子"""
+    for hook in hooks:
+        hook.remove()
+    hooks.clear()
+
     total_activation_quantizer_list = []
     modified_activation_quantizer_counts = 0
 
@@ -133,10 +138,7 @@ def adapt_modify_quantization_precision(model, adaptive_R4, batch, batch_find_th
             if local_rank == 0:
                 log.info(f"{all_name_i}: Modify activation!")
             
-    """移除所有钩子"""
-    for hook in hooks:
-        hook.remove()
-    hooks.clear()
+
     
     for name, module in model.named_modules():
         if isinstance(module, FakeQuantizer):

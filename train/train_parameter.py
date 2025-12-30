@@ -10,8 +10,10 @@ from .quantizer import (
     compute_input_min_max_static,
     compute_qparams_static_mean_std,
     StaticLearnableFakeQuantizeFunction, 
-    DynamicUnLearnableFakeQuantizeFunction
+    DynamicUnLearnableFakeQuantizeFunction,
+    DynamicUnLearnableQKVFakeQuantizeFunction
 )
+from attention.sageattention.quant_per_block import quant_per_block
 
 class LearnRotateModule(nn.Module):
     """
@@ -29,6 +31,20 @@ class NoLearnRotateModule(nn.Module):
         super(NoLearnRotateModule, self).__init__()
         self.weight = R.to(torch.float32)
 
+
+def compute_input_min_max_static_clip(input: torch.Tensor, config):
+    dtype = input.dtype
+    # per-tensor 情况：flatten 后计算 quantile
+    if config.granularity == 'per_tensor':
+        input = input.flatten()
+
+    xmin = torch.quantile(input.to(torch.float32), 0.00001, dim=-1, keepdim=True) * config.clip_ratio
+    xmax = torch.quantile(input.to(torch.float32), 0.99999, dim=-1, keepdim=True) * config.clip_ratio
+
+    xmin = xmin.to(dtype)
+    xmax = xmax.to(dtype)
+
+    return xmax, xmin
 
 
 class FakeQuantizer(nn.Module):
@@ -49,6 +65,19 @@ class FakeQuantizer(nn.Module):
             self.scale, self.zero_point = compute_qparams_static_min_max(self.config, self.xmax, self.xmin, self.qmin, self.qmax)
             self.scale = nn.Parameter(self.scale)
             self.zero_point = nn.Parameter(self.zero_point) if self.zero_point is not None else None
+
+
+    def init_qkv_scale_and_zero_point(self, input):
+        self.config.need_sample_for_static_init -= 1        # The required sample minus 1
+        scale, zero_point = quant_per_block(input, self.config)
+        if hasattr(self, "scale"):
+            self.scale.data = 0.9 * self.scale.data + 0.1 * scale 
+            if self.zero_point is not None:
+                self.zero_point.data = 0.9 * self.zero_point.data + 0.1 * zero_point    
+        else:
+            self.scale = nn.Parameter(scale)
+            self.zero_point = nn.Parameter(zero_point) if zero_point is not None else None
+
 
     def init_activation_scale_and_zero_point_mean(self, input):
         self.config.need_sample_for_static_init -= 1        # The required sample minus 1
@@ -97,7 +126,7 @@ class FakeQuantizer(nn.Module):
             return input
         if self.config.mode == 'static':    # Only Support per-tensor and per-channel quantizer
             input_q = input
-            if isinstance(self.config, (ActivationQuantizeConfig, KeyQuantizeConfig, ValueQuantizeConfig, OutActivationQuantizeConfig)):
+            if isinstance(self.config, (ActivationQuantizeConfig, OutActivationQuantizeConfig, QueryQuantizeConfig, KeyQuantizeConfig, ValueQuantizeConfig)):
                 if self.config.need_sample_for_static_init > 0:
                     if self.config.init_type == 'mean':
                         self.init_activation_scale_and_zero_point_mean(input)
@@ -118,14 +147,20 @@ class FakeQuantizer(nn.Module):
                         raise NotImplementedError(f"init_type '{self.config.init_type}' is not implemented yet.")
                 else:
                     self.qmin, self.qmax = compute_n_bits_min_max(self.config)
-                    input_q = StaticLearnableFakeQuantizeFunction.apply(input, self.scale, self.zero_point, self.qmin, self.qmax)       
+                    input_q = StaticLearnableFakeQuantizeFunction.apply(input, self.scale, self.zero_point, self.qmin, self.qmax)
+            # elif isinstance(self.config, (QueryQuantizeConfig, KeyQuantizeConfig, ValueQuantizeConfig)):    
+            #     if self.config.need_sample_for_static_init > 0:   
+            #         self.init_qkv_scale_and_zero_point(input)
+            #     else:
+            #         input_type = input.dtype
+            #         self.qmin, self.qmax = compute_n_bits_min_max(self.config)
+            #         input_q = DynamicUnLearnableQKVFakeQuantizeFunction.apply(input, self.scale, self.zero_point, self.qmin, self.qmax).to(dtype=input_type)
         elif self.config.mode == 'dynamic': # Only Support per-channel and per-group quantizer
             if isinstance(self.config, (QueryQuantizeConfig, KeyQuantizeConfig, ValueQuantizeConfig)):
-                input_type = input.dtype
-                from attention.static.quant_per_block import per_block_int8
-                self.scale = per_block_int8(input, bits=self.config.num_bits)
-                from train.quantizer import DynamicUnLearnableQKVFakeQuantizeFunction
-                input_q = DynamicUnLearnableQKVFakeQuantizeFunction.apply(input, self.scale).to(dtype=input_type)
+                input_type = input.dtype 
+                self.qmin, self.qmax = compute_n_bits_min_max(self.config)
+                self.scale, self.zero_point = quant_per_block(input, self.config)
+                input_q = DynamicUnLearnableQKVFakeQuantizeFunction.apply(input, self.scale, self.zero_point, self.qmin, self.qmax).to(dtype=input_type)
             else:
                 input_type = input.dtype
                 self.qmin, self.qmax = compute_n_bits_min_max(self.config)

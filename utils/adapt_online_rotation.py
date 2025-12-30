@@ -36,6 +36,11 @@ def adapt_choose_online_rotation(model, R4_hadamard, batch, batch_find_threshold
     with torch.no_grad():
         _ = model(batch_find_threshold)
 
+    """移除所有钩子"""
+    for hook in hooks:
+        hook.remove()
+    hooks.clear()
+
 
     total_R4 = 0
     modified_R4 = 0
@@ -100,10 +105,7 @@ def adapt_choose_online_rotation(model, R4_hadamard, batch, batch_find_threshold
             add_layer[i] = False
     
 
-    """移除所有钩子"""
-    for hook in hooks:
-        hook.remove()
-    hooks.clear()
+    
 
     for name, module in model.named_modules():
         if isinstance(module, FakeQuantizer):

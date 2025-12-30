@@ -9,11 +9,11 @@ from .backward import _attn_bwd_preprocess, _attn_bwd
 class _attention(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, q, k, v, scaling, tensor_layout, bits):
+    def forward(ctx, q, k, v, scaling, tensor_layout, quant_max):
         dtype = q.dtype
         
         M = torch.empty((q.shape[0], q.shape[1], q.shape[2]), device=q.device, dtype=torch.float32)
-        o = attn_true(q, k, v, M, scaling, bits=bits, tensor_layout=tensor_layout, output_dtype=dtype)
+        o = attn_true(q, k, v, M, scaling, quant_max, tensor_layout=tensor_layout, output_dtype=dtype)
 
         ctx.save_for_backward(q, k, v, o, M)
         ctx.scaling = scaling
@@ -97,10 +97,12 @@ def Quant_scaled_dot_product_attention(
     q: torch.Tensor,
     k: torch.Tensor,
     v: torch.Tensor,
-    scaling: Optional[float] = None,
+    attn_mask: Optional[torch.Tensor] = None,
+    dropout_p: float = 0.0,
+    scale: Optional[float] = None, 
+    is_causal: Optional[bool] = None,
     tensor_layout: str = "HND",
-    smooth_k: bool = True,
-    bits = 8,
+    bits: int = 8,
     **kwargs: Any,
 ) -> torch.Tensor:
     
@@ -118,14 +120,9 @@ def Quant_scaled_dot_product_attention(
 
     seq_dim = 1 if tensor_layout == "NHD" else 2
 
-    if smooth_k:
-        km = k.mean(dim=seq_dim, keepdim=True)
-        k -= km
-    else:
-        km = None
 
-    if scaling is None:
-        scaling = headdim**-0.5
-
-    return _attention.apply(q, k, v, scaling, tensor_layout, bits)
+    if scale is None:
+        scale = headdim**-0.5
+    quant_max =  (2 ** (bits - 1)) - 1
+    return _attention.apply(q, k, v, scale, tensor_layout, quant_max)
 

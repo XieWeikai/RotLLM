@@ -20,7 +20,7 @@ from .static_rtn import static_rtn_fwrd
 from .trainable_static_rtn import trainable_static_rtn_fwrd
 from modeling.monkeypatch import add_qkv_rotation_quant
 from utils.utils import log
-from attention.core import Quant_scaled_dot_product_attention
+from attention.my_sdpa import Quant_scaled_dot_product_attention
 
 def set_special_quantization_configuration(model, ptq_args):
     subset = collect_fakequant_configs(model)

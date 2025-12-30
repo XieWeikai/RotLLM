@@ -93,7 +93,11 @@ def trainable_static_rtn_fwrd(model, batch, ptq_args, model_args):
             
         # if "outActQuant" in name or "down_proj.actQuant" in name:
         # if "outActQuant" in name:
-        #     module.config.need_sample_for_static_init = 16
+    #     if "qQuant" in name or "kQuant" in name or "vQuant" in name:
+    #         module.config.need_sample_for_static_init = 16
+
+    # from utils.adapt_mix_precision import collect_fakequant_configs
+    # collect_fakequant_configs(model, "./txt/test1.txt", True)
 
     # model.eval()
     # with torch.no_grad(): 
@@ -102,7 +106,8 @@ def trainable_static_rtn_fwrd(model, batch, ptq_args, model_args):
     #         model(sample)
     #     log.info("✅ Init scale and zero_point ok!")
 
-
+    # from utils.adapt_mix_precision import collect_fakequant_configs
+    # collect_fakequant_configs(model, "./txt/test2.txt", True)
 
     # if model_args.convert_model_path is not None:
     #     convert_model(model, model_args.convert_model_path)

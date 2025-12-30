@@ -7,7 +7,24 @@ import copy
 from .config import AllQuantizeConfigs
 from .train_parameter import FakeQuantizer
 
-my_Flinear = F.linear
+# my_Flinear = F.linear
+
+def my_Flinear(x_q, w_q, b_q, outActQuant, rotation_pos, R_post):
+    y = F.linear(x_q, w_q, b_q)
+    y_q = outActQuant(y) 
+
+    if rotation_pos in ["out_R"]:
+        R = R_post.weight.T
+        assert y_q.shape[-1] % R.shape[0] == 0, "Output dim(weight) should be multiple of R_post dim"
+        num_blocks = y_q.shape[-1] // R.shape[0]
+
+        y_q_dtype = y_q.dtype
+        y_q_device = y_q.device
+        y_q = y_q.view(*(y_q.shape[:-1]), num_blocks, R.shape[0])
+        y_q = (y_q.to(R.dtype) @ R.to(device=y_q_device)).to(dtype=y_q_dtype)
+        y_q = y_q.view(*(y_q.shape[:-2]), num_blocks * R.shape[0])
+
+    return y_q
 
 class RotationQuantLinear(nn.Module):
     def __init__(self, config: AllQuantizeConfigs, linear: nn.Linear, rotation_pos="none", R_pre = None, R_post = None):
@@ -65,10 +82,10 @@ class RotationQuantLinear(nn.Module):
 
         x_q, w_q, b_q = self.allQuant(x, w, b)  # FakeQuant
 
-        y = my_Flinear(x_q, w_q, b_q) 
-        y_q = self.outActQuant(y)
+        y = my_Flinear(x_q, w_q, b_q, self.outActQuant, self.rotation_pos, self.R_post) 
+        # y_q = self.outActQuant(y)
             
-        return y_q
+        return y
     
 
     def allQuant(self, x, w, b):
