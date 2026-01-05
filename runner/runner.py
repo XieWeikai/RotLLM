@@ -7,15 +7,17 @@ import datetime
 import torch.distributed as dist
 import transformers
 
-from .optimizer import SGDG
-from utils.data_utils import CustomJsonDataset 
+from train.optimizer_sgd import SGDG
+from utils.data_utils import CustomJsonDataset, get_wikitext2
 from .prepare_model import prepare_model
 from utils.process_args import process_args_ptq
 from utils.utils import get_local_rank, log
 from utils.adapt_mix_precision import collect_fakequant_configs
+from evaluator.utils.evaluator import evaluator
+from evaluator.task import task_baseline
 
 
-def train() -> None:
+def runner() -> None:
     dist.init_process_group(backend="nccl", timeout=datetime.timedelta(hours=8))
     model_args, training_args, ptq_args, quant_configs = process_args_ptq()
     transformers.set_seed(ptq_args.seed)
@@ -100,95 +102,108 @@ def train() -> None:
     # Prepare the trainable model and set parameters for training.
     model, adaptive_R4, R_trainable_parameters, q_trainable_parameters = prepare_model(
         model_orig,  
+        dataset,
         quant_configs, 
         ptq_args,
-        batch
-    )
-    model.train()
-
-    if local_rank == 0:
-        log.info("Model init completed for training...")
-        log.info("💡Start to train...")
-    
-    # Applicable to RotLLM
-    optimizer = SGDG(
-        [
-            {"params": R_trainable_parameters, "lr": training_args.learning_rate, "momentum": 0.0, "stiefel": True},
-            {"params": q_trainable_parameters, "lr": training_args.learning_rate, "momentum": 0.0, "nesterov": False},
-        ],
-        lr=training_args.learning_rate
+        model_args,
+        batch,
     )
 
-    # from train.optimizer_adam import AdamG
-    # optimizer = AdamG(
-    #     [
-    #         {"params": R_trainable_parameters, "lr": training_args.learning_rate, "momentum": 0.9, "beta2": 0.999, "stiefel": True},
-    #         {"params": q_trainable_parameters, "lr": training_args.learning_rate, "momentum": 0.9, "beta2": 0.999, "nesterov": False},
-    #     ],
-    #     lr=training_args.learning_rate
-    # )
+    if ptq_args.stage == "train":
+        model.train()
 
-    MyTrainer = Trainer
-
-    trainer = MyTrainer(
-        model=model,
-        tokenizer=tokenizer,
-        args=training_args,
-        train_dataset=train_data,
-        eval_dataset=None,
-        data_collator=default_data_collator,
-        optimizers=(optimizer, None),
-    )
-
-    torch.distributed.barrier()
-
-    trainer.train()
-
-    cpu_state = trainer.model.state_dict()
-
-    R_dict = {}
-    for key, value in cpu_state.items():
-        if "embed_tokens.R_post.weight" in key or "self_attn.v_proj.R_post.weight" in key:
-            R_dict[key.replace(".weight", "")] =  value.clone().cpu()
-        if "scale" in key or "zero_point" in key:
-            R_dict[key] =  value.clone().cpu()
+        if local_rank == 0:
+            log.info("Model init completed for training...")
+            log.info("💡Start to train...")
         
-    fq_dict = collect_fakequant_configs(model, "txt/after_train_quant_config.txt", write_to_file=True)
-    for key, value in fq_dict.items():
-        if "outActQuant" not in key:
-            R_dict[f"{key}.config.num_bits"] = value.num_bits
-
-    # 保存需要 online rotation R4 的层
-    R_dict["adaptive_R4"] = adaptive_R4       
-
-    if local_rank == 0:
-        path = model_args.output_rotation_path
-        dir_name = os.path.dirname(path)  
-        os.makedirs(dir_name, exist_ok=True)  
-        torch.save(
-            R_dict,
-            path,
+        # Applicable to RotLLM
+        optimizer = SGDG(
+            [
+                {"params": R_trainable_parameters, "lr": training_args.learning_rate, "momentum": 0.9, "stiefel": True},
+                {"params": q_trainable_parameters, "lr": training_args.learning_rate / 10, "momentum": 0.9, "nesterov": False},
+            ],
+            lr=training_args.learning_rate
         )
 
-    if local_rank == 0:
-        dict = {}
-        from train.train_parameter import FakeQuantizer
-        for name, module in model.named_modules():
-            if isinstance(module, FakeQuantizer):
-                if hasattr(module, "scale"):
-                    dict[f"{name}.scale"] = module.scale
-                if hasattr(module, "zero_point"):
-                    dict[f"{name}.zero_point"] = module.zero_point
-        
-        with open("./txt/scale_train.txt", "w") as f:
-            for k, v in dict.items():
-                if v is None:
-                    f.write(f"{k}: None\n")
-                else:
-                    # 标量 scale / zero_point
-                    f.write(f"{k}: {v.detach().cpu().item()}\n")
 
+        MyTrainer = Trainer
+
+        trainer = MyTrainer(
+            model=model,
+            tokenizer=tokenizer,
+            args=training_args,
+            train_dataset=train_data,
+            eval_dataset=None,
+            data_collator=default_data_collator,
+            optimizers=(optimizer, None),
+        )
+
+        torch.distributed.barrier()
+
+        trainer.train()
+
+        cpu_state = trainer.model.state_dict()
+
+        R_dict = {}
+        for key, value in cpu_state.items():
+            if "embed_tokens.R_post.weight" in key or "self_attn.v_proj.R_post.weight" in key:
+                R_dict[key.replace(".weight", "")] =  value.clone().cpu()
+            if "scale" in key or "zero_point" in key:
+                R_dict[key] =  value.clone().cpu()
+            
+        fq_dict = collect_fakequant_configs(model, "txt/after_train_quant_config.txt", write_to_file=True)
+        for key, value in fq_dict.items():
+            if "outActQuant" not in key and "qQuant" not in name and "kQuant" not in name and "vQuant" not in name:
+                R_dict[f"{key}.config.num_bits"] = value.num_bits
+
+        # 保存需要 online rotation R4 的层
+        R_dict["adaptive_R4"] = adaptive_R4       
+
+        if local_rank == 0:
+            path = model_args.output_rotation_path
+            dir_name = os.path.dirname(path)  
+            os.makedirs(dir_name, exist_ok=True)  
+            torch.save(
+                R_dict,
+                path,
+            )
+
+        if local_rank == 0:
+            dict = {}
+            from train.train_parameter import FakeQuantizer
+            for name, module in model.named_modules():
+                if isinstance(module, FakeQuantizer):
+                    if hasattr(module, "scale"):
+                        dict[f"{name}.scale"] = module.scale
+                    if hasattr(module, "zero_point"):
+                        dict[f"{name}.zero_point"] = module.zero_point
+            
+            with open("./txt/scale_train.txt", "w") as f:
+                for k, v in dict.items():
+                    if v is None:
+                        f.write(f"{k}: None\n")
+                    else:
+                        # 标量 scale / zero_point
+                        f.write(f"{k}: {v.detach().cpu().item()}\n")
+    else:
+        log.info("Model init completed for evaling...")
+        log.info("💡Start to eval...")
+        
+        if not ptq_args.task:
+            testloader = get_wikitext2(
+                dataset,
+                seed=ptq_args.seed,
+                seqlen=2048,
+                tokenizer=tokenizer,
+                eval_mode=True,
+            )
+            dataset_ppl = evaluator(model, testloader, training_args.model_max_length, ptq_args)
+            log.info("wiki2 ppl is: {}".format(dataset_ppl))
+        else:
+            log.info("Calculate PIQA, WinoGrande...")
+            task_baseline(model, tokenizer)
+    
     dist.barrier()
     
 if __name__ == "__main__":
-    train()
+    runner()

@@ -37,9 +37,9 @@ def rtn_fwrd(model, wConfig: QuantizeConfig):
             wQuantConfig = copy.deepcopy(wConfig)
 
             if "lm_head" in name:
-                wQuantConfig.num_bits = 16
+                wQuantConfig.num_bits = 32
             if wQuantConfig.int8_down_proj and "down_proj" in name:
-                wQuantConfig.num_bits = 16
+                wQuantConfig.num_bits = 8
 
             quantizer = WeightQuantizer(wQuantConfig)
             W = subset[name].weight.data

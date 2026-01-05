@@ -11,7 +11,7 @@ class QuantizeConfig:
     need_sample_for_static_init: int = 0
     init_type: str = 'mean'
 
-    num_bits: int = 16
+    num_bits: int = 32
     is_symmetric: bool = False
     groupsize: int = -1
     clip_ratio: float = 1.0
@@ -58,7 +58,7 @@ class BiasQuantizeConfig(QuantizeConfig):
     """
     Bias quantization config.
     """
-    num_bits: int = 16
+    num_bits: int = 32
 
 @dataclasses.dataclass
 class QueryQuantizeConfig(QuantizeConfig):

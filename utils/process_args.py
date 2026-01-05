@@ -47,13 +47,19 @@ def parser_gen():
     parser.add_argument(
         "--seed", type=int, default=0, help="Random Seed for HuggingFace and PyTorch"
     )
+    parser.add_argument(
+        "--stage",
+        type=str,
+        default="train",
+        help="""Train or Eval""",
+    )
     # Use for train
     parser.add_argument(
         "--adaptive_mixed_precision",
         action=argparse.BooleanOptionalAction,
         default=False,
         help="""If it is false, you can customize the W-A-KV quantization precision. 
-        If it is true, the default 4-4-16 quantization is used, 
+        If it is true, the default 4-4-32-32 quantization is used, 
         automatically selecting certain important positions to improve quantization precision.""",
     )
     parser.add_argument(
@@ -111,7 +117,7 @@ def parser_gen():
         action=argparse.BooleanOptionalAction,
         default=True,
         help="""Decide whether to use the SageAttention quantization method. 
-        Note: sageattn=true and k_bits, v_bits < 16 cannot both be true at the same time, otherwise it will cause duplicate quantization.""",
+        Note: sageattn=true and k_bits, v_bits < 32 cannot both be true at the same time, otherwise it will cause duplicate quantization.""",
     )
 
     # Used for static quantization
@@ -146,7 +152,7 @@ def parser_gen():
     parser.add_argument(
         "--a_bits",
         type=int,
-        default=16,
+        default=32,
         help="""Number of bits for inputs of the Linear layers. This will be
                         for all the linear layers in the model (including down-projection and out-projection)""",
     )
@@ -180,7 +186,7 @@ def parser_gen():
     parser.add_argument(
         "--oa_bits",
         type=int,
-        default=16,
+        default=32,
         help="""Number of bits for outputs of the Linear layers. This will be
                         for all the linear layers in the model (including down-projection and out-projection)""",
     )
@@ -213,7 +219,7 @@ def parser_gen():
     parser.add_argument(
         "--w_bits",
         type=int,
-        default=16,
+        default=32,
         help="Number of bits for weights of the Linear layers",
     )
     parser.add_argument(
@@ -260,7 +266,7 @@ def parser_gen():
         "--w_rtn",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Quantize the weights using RtN. If the w_bits < 16 and this flag is not set, we use GPTQ",
+        help="Quantize the weights using RtN. If the w_bits < 32 and this flag is not set, we use GPTQ",
     )
     parser.add_argument(
         "--nsamples",
@@ -286,7 +292,7 @@ def parser_gen():
     parser.add_argument(
         "--v_bits",
         type=int,
-        default=16,
+        default=32,
         help="""Number of bits for V-cache quantization.
                         Note that quantizing the V-cache does not need any other rotation""",    
     )
@@ -317,7 +323,7 @@ def parser_gen():
     parser.add_argument(
         "--k_bits",
         type=int,
-        default=16,
+        default=32,
         help="""Number of bits for K-cache quantization.
                         Note that quantizing the K-cache needs another rotation for the keys/queries""",
     )
@@ -348,7 +354,7 @@ def parser_gen():
     parser.add_argument(
         "--q_bits",
         type=int,
-        default=16,
+        default=32,
         help="""Number of bits for query quantization.
                         Note that quantizing the query needs another rotation for the keys/queries""",
     )
@@ -429,7 +435,7 @@ def process_args_ptq():
     all_qconfigs.weight.act_order = getattr(ptq_args, "act_order")
 
     # Bias: 不做任何量化，但保留该接口
-    all_qconfigs.bias.num_bits = 16
+    all_qconfigs.bias.num_bits = 32
 
 
     # query 

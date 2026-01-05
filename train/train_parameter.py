@@ -122,7 +122,7 @@ class FakeQuantizer(nn.Module):
         
 
     def forward(self, input):
-        if self.config.num_bits == 16:      # No quantizer
+        if self.config.num_bits == 32:      # No quantizer
             return input
         if self.config.mode == 'static':    # Only Support per-tensor and per-channel quantizer
             input_q = input

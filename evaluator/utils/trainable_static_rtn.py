@@ -8,34 +8,6 @@ from utils.utils import log
 from utils.convert_model import convert_model 
 
 
-def change_config_for_static_quant(model, ptq_args):
-    num_heads = model.config.num_attention_heads
-    dim = model.config.hidden_size
-    head_dim = dim // num_heads
-
-    for name, module in model.named_modules():
-        if isinstance(module, FakeQuantizer):
-            # weight:
-            if ptq_args.w_bits < 16 and "weightQuant" in name:
-                if "lm_head" in name:
-                    module.config.num_bits = 16
-                if ptq_args.int8_down_proj and "down_proj" in name:
-                    module.config.num_bits = 8
-
-            # activation:
-            if ptq_args.a_bits < 16 and "actQuant" in name:
-                if "lm_head" in name:
-                    module.config.num_bits = 16
-                if "down_proj" in name:
-                    if ptq_args.int8_down_proj:
-                        module.config.num_bits = 8
-
-            # out_activation:
-            if ptq_args.oa_bits < 16 and "outActQuant" in name:
-                if "lm_head" in name:
-                    module.config.num_bits = 16
-
-
 def find_qlayers(module, layers=[RotationQuantLinear, RotationEmbedding], name: str = ""):
     if type(module) in [RotationEmbedding] and type(module) in layers:
         return {"embed_tokens": module}
@@ -51,15 +23,13 @@ def find_qlayers(module, layers=[RotationQuantLinear, RotationEmbedding], name: 
     return res
 
 
-def trainable_static_rtn_fwrd(model, batch, ptq_args, model_args):
+def trainable_static_rtn_fwrd(model, batch, model_args):
     """
     遍历 model，找到所有 FakeQuantizer 对象
     
     Args:
         model (nn.Module): 待遍历模型
     """
-    change_config_for_static_quant(model, ptq_args)
-
     model.eval() 
 
     layers = model.model.layers
@@ -86,18 +56,11 @@ def trainable_static_rtn_fwrd(model, batch, ptq_args, model_args):
 
         if num_bits_name in data.keys():
             module.config.num_bits = data[num_bits_name]
-        # else:
-        #     print("****")
-        #     print(num_bits_name)
-        #     print("****")
+        
             
-        # if "outActQuant" in name or "down_proj.actQuant" in name:
-        # if "outActQuant" in name:
-    #     if "qQuant" in name or "kQuant" in name or "vQuant" in name:
+        
+    #     if "outActQuant" in name or "qQuant" in name or "kQuant" in name or "vQuant" in name:
     #         module.config.need_sample_for_static_init = 16
-
-    # from utils.adapt_mix_precision import collect_fakequant_configs
-    # collect_fakequant_configs(model, "./txt/test1.txt", True)
 
     # model.eval()
     # with torch.no_grad(): 
@@ -105,9 +68,6 @@ def trainable_static_rtn_fwrd(model, batch, ptq_args, model_args):
     #         sample = batch[i].unsqueeze(0)  # 保持 batch 维度
     #         model(sample)
     #     log.info("✅ Init scale and zero_point ok!")
-
-    # from utils.adapt_mix_precision import collect_fakequant_configs
-    # collect_fakequant_configs(model, "./txt/test2.txt", True)
 
     # if model_args.convert_model_path is not None:
     #     convert_model(model, model_args.convert_model_path)

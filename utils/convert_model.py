@@ -2,8 +2,7 @@ import torch
 from tqdm import tqdm
 import os
 
-# 转置？
-# 对称量化？
+
 def quantize_given_scale(w: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
     """
      使用给定的 scale 对权重张量进行量化（per-tensor）。

@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 
-from train.prepare_model import build_rotation_map
+from train.rotation_map import build_rotation_map
 
 
 def add_rotation_to_linear(
