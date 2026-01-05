@@ -9,17 +9,17 @@
 # nproc_per_node indicates the number of GPUs per node to employ.
 
 
-# For example: bash scripts/train.sh /data/share/Llama-3.2-3B-Instruct 4 4 4
-# For example: bash scripts/train.sh /data/share/Qwen2.5-3B-Instruct 4 4 4
-# For example: bash scripts/train.sh /data/share/SmolLM2-1.7B-Instruct 4 4 4
-# For example: bash scripts/train.sh /data/share/Qwen3-1.7B 4 4 4
+# For example: bash scripts/train.sh /data/share/Llama-3.2-3B-Instruct 8 8 32 32
+# For example: bash scripts/train.sh /data/share/Qwen2.5-3B-Instruct 8 8 32 32
+# For example: bash scripts/train.sh /data/share/SmolLM2-1.7B-Instruct 8 8 32 32
+# For example: bash scripts/train.sh /data/share/Qwen3-1.7B 8 8 32 32
 export HF_ENDPOINT=https://hf-mirror.com
-CUDA_VISIBLE_DEVICES=2,3 torchrun --nnodes=1 --nproc_per_node=2 --master_port=45678 -m runner.runner \
+CUDA_VISIBLE_DEVICES=0,1 torchrun --nnodes=1 --nproc_per_node=2 --master_port=45678 -m runner.runner \
 --stage "train" \
 --input_model $1  \
---output_rotation_path "/data/zjh/test/test.bin" \
---output_dir "/data/zjh/test/outputs" \
---logging_dir "/data/zjh/test/logs" \
+--output_rotation_path "/data/zjh/tensor_0105_test_train/SmolLM2_8_8_32_32_002_0002_1024_512_mm_m_v_c1_backward.bin" \
+--output_dir "/data/zjh/tensor_0105_test_train/outputs" \
+--logging_dir "/data/zjh/tensor_0105_test_train/logs" \
 --model_max_length 2048 \
 --fp16 False \
 --bf16 True \
@@ -27,8 +27,8 @@ CUDA_VISIBLE_DEVICES=2,3 torchrun --nnodes=1 --nproc_per_node=2 --master_port=45
 --per_device_train_batch_size 4 \
 --gradient_accumulation_steps 2 \
 --max_steps 1024 \
---logging_steps 1 \
---learning_rate 0.01 \
+--logging_steps 10 \
+--learning_rate 0.02 \
 --weight_decay 0. \
 --lr_scheduler_type "cosine" \
 --gradient_checkpointing True \

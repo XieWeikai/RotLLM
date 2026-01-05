@@ -1,7 +1,25 @@
+import torch
+import torch.nn as nn
 from typing import Optional, List
 
 
 from train.train_parameter import LearnRotateModule, NoLearnRotateModule
+
+
+def untie_word_embeddings(model):
+    if model.config.tie_word_embeddings:
+        model.config.tie_word_embeddings = False
+
+        # create a new weight for lm_head
+        new_weight = torch.empty_like(model.model.embed_tokens.weight)
+        new_weight.copy_(model.model.embed_tokens.weight)
+
+        # copy from model.model.embed_tokens.weight
+        model.lm_head.weight = nn.Parameter(new_weight)
+
+        # ensure that the ptr of weight of lm_head is not the same as ptr of the weight of embed_tokens
+        assert model.model.embed_tokens.weight.data_ptr() != model.lm_head.weight.data_ptr()
+
 
 def build_rotation_map(
         num_layers, 

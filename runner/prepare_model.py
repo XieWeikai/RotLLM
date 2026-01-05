@@ -21,22 +21,8 @@ from evaluator.utils.rtn import rtn_fwrd
 from evaluator.utils.gptq import gptq_fwrd
 from evaluator.utils.static_rtn import static_rtn_fwrd
 from evaluator.utils.trainable_static_rtn import trainable_static_rtn_fwrd
-from train.rotation_map import build_rotation_map
-
-
-def untie_word_embeddings(model):
-    if model.config.tie_word_embeddings:
-        model.config.tie_word_embeddings = False
-
-        # create a new weight for lm_head
-        new_weight = torch.empty_like(model.model.embed_tokens.weight)
-        new_weight.copy_(model.model.embed_tokens.weight)
-
-        # copy from model.model.embed_tokens.weight
-        model.lm_head.weight = nn.Parameter(new_weight)
-
-        # ensure that the ptr of weight of lm_head is not the same as ptr of the weight of embed_tokens
-        assert model.model.embed_tokens.weight.data_ptr() != model.lm_head.weight.data_ptr()
+from train.train_utils import build_rotation_map, untie_word_embeddings
+from evaluator.baseline.executorch.convert import rotllm_transform_to_executorch
 
 
 def replace_linear_with_rotation_quant(
@@ -456,6 +442,9 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
                 trainable_static_rtn_fwrd(model, batch, model_args) 
             else:
                 static_rtn_fwrd(model)
-      
+        
+        if True:
+            model = rotllm_transform_to_executorch(model, batch, model_args, R4)
+
         return model, None, None, None
     

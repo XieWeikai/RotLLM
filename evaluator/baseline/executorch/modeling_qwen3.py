@@ -181,11 +181,18 @@ class Qwen3Attention(nn.Module):
         self.k_rope_mul_0_output_qdq = ActivationQDQ(bits=act_bits)
         self.k_rope_mul_1_output_qdq = ActivationQDQ(bits=act_bits)
         self.k_rope_add_0_output_qdq = ActivationQDQ(bits=act_bits)
-        self.k_cast_to_int8_qdq = ActivationQDQ(bits=kv_act_bits)
-        self.v_cast_to_int8_qdq = ActivationQDQ(bits=kv_act_bits)
+
+        self.k_cast_to_int8_qdq = ActivationQDQ(
+            bits=kv_act_bits, qscheme=torch.per_tensor_symmetric
+        )
+        self.v_cast_to_int8_qdq = ActivationQDQ(
+            bits=kv_act_bits, qscheme=torch.per_tensor_symmetric
+        )
+
         self.v_cast_to_int16_qdq = ActivationQDQ(bits=act_bits)
         self.qk_matmul_output_qdq = ActivationQDQ(bits=act_bits)
         self.scaling_qdq = ActivationQDQ(bits=act_bits)
+        self.neg_20_qdq = ActivationQDQ(bits=16)
         self.reduce_min_output_qdq = ActivationQDQ(bits=act_bits)
         self.mul_0_output_qdq = ActivationQDQ(bits=act_bits)
         self.minus_0_output_qdq = ActivationQDQ(bits=act_bits)
@@ -257,7 +264,12 @@ class Qwen3Attention(nn.Module):
         attn_min = self.reduce_min_output_qdq(
             torch.amin(attn_weights, dim=-1, keepdim=True)
         )
-        attn_vv = self.minus_0_output_qdq(attn_min - 20)
+        attn_vv = self.minus_0_output_qdq(
+            attn_min
+            + self.neg_20_qdq(
+                torch.ones(1, dtype=torch.float32, device=value_states.device) * (-20)
+            )
+        )
         attn_weights = torch.where(attention_mask == 0, attn_weights, attn_vv)
 
         attn_weights = self.softmax_output_qdq(

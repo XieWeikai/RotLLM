@@ -20,12 +20,12 @@ class QRMSNorm(nn.Module):
         # Quantization configuration for Weight
         self.weight_fake_quant = FakeQuantize(
             observer=MinMaxObserver.with_args(
-                qscheme=torch.per_tensor_symmetric, dtype=torch.qint32
+                qscheme=torch.per_tensor_affine, dtype=torch.qint32
             ),
-            quant_min=-(2 ** (quant_bits - 1)),
-            quant_max=2 ** (quant_bits - 1) - 1,
+            quant_min=0,
+            quant_max=2 ** (quant_bits) - 1,
             dtype=torch.qint32,
-            qscheme=torch.per_tensor_symmetric,
+            qscheme=torch.per_tensor_affine,
         )
 
     def forward(self, x):
@@ -53,11 +53,7 @@ class QRMSNorm(nn.Module):
         self.weight_fake_quant.scale.copy_(s)
         self.weight_fake_quant.zero_point.copy_(zp)
         self.weight_fake_quant.disable_observer()
-        class_name = self.__class__.__name__
-        instance_class_name = type(self).__name__
-        # print(
-        #     f"Class: {class_name}, Instance: {instance_class_name}, Weight Quantized: scale={self.weight_fake_quant.scale}, zp={self.weight_fake_quant.zero_point}"
-        # )
+        
 
     def disable_fakequant(self):
         """Completely turn off quantization noise and return to floating point mode"""

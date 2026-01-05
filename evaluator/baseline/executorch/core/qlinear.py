@@ -18,6 +18,7 @@ class QLinear(nn.Module):
         self.act_quant = None
         self.weight_quant = None
 
+    @torch.no_grad()
     def freeze_weight(self):
         """PTQ Core: Observe current weights, calculate and fix Scale/ZP"""
         if self.weight_quant is not None:
@@ -29,19 +30,10 @@ class QLinear(nn.Module):
                 _ = self.weight_quant(self.weight)
                 self.weight_quant.disable_observer()
                 s = self.weight_quant.scale
-                # print(
-                #     f"[{self.__class__.__name__}] Scale Shape: {list(s.shape)}, "
-                #     f"scale[:3]: {s.flatten()[:3].tolist()}"
-                # )
             # Compatible with custom LPBQ logic
             elif hasattr(self.weight_quant, "freeze"):
                 self.weight_quant.freeze(self.weight.detach())
                 s = self.weight_quant.scale_2_fp32
-                # if s is not None:
-                    # print(
-                    #     f"[{self.__class__.__name__}] LPBQ L2 Scale Shape: {list(s.shape)}, "
-                    #     f"scale[:3]: {s.flatten()[:3].tolist()}"
-                    # )
 
     def disable_fakequant(self):
         """Completely turn off quantization noise and return to floating point mode"""

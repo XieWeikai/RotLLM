@@ -7,7 +7,7 @@ from .modeling_qwen3 import Qwen3ForCausalLM
 from .core.qlinear import QLinear, QLinearLPBQ, QLinearW8A16_PerChannelSym
 from .core.rms_norm import QRMSNorm
 from .core.qdq import ActivationQDQ
-from runner.prepare_model import untie_word_embeddings
+from train.train_utils import untie_word_embeddings
 
 ActivationQDQ_to_FakeQuantizer = {
     "self_attn.q_proj_input_qdq": "self_attn.q_proj.actQuant",
