@@ -17,7 +17,7 @@ export HF_ENDPOINT=https://hf-mirror.com
 CUDA_VISIBLE_DEVICES=0,1 torchrun --nnodes=1 --nproc_per_node=2 --master_port=45678 -m runner.runner \
 --stage "train" \
 --input_model $1  \
---output_rotation_path "/data/zjh/tensor_0105_test_train/SmolLM2_8_8_32_32_002_0002_1024_512_mm_m_v_c1_backward.bin" \
+--output_rotation_path "/data/zjh/tensor_0105_test_train/SmolLM2_8_8_32_32_0005_0005_1024_512_mm_m_v_c1_backward.bin" \
 --output_dir "/data/zjh/tensor_0105_test_train/outputs" \
 --logging_dir "/data/zjh/tensor_0105_test_train/logs" \
 --model_max_length 2048 \
@@ -28,7 +28,7 @@ CUDA_VISIBLE_DEVICES=0,1 torchrun --nnodes=1 --nproc_per_node=2 --master_port=45
 --gradient_accumulation_steps 2 \
 --max_steps 1024 \
 --logging_steps 10 \
---learning_rate 0.02 \
+--learning_rate 0.005 \
 --weight_decay 0. \
 --lr_scheduler_type "cosine" \
 --gradient_checkpointing True \
@@ -50,10 +50,10 @@ CUDA_VISIBLE_DEVICES=0,1 torchrun --nnodes=1 --nproc_per_node=2 --master_port=45
 --no-q_sym \
 --no-k_sym \
 --no-v_sym \
---a_init_type "maxmin" \
+--a_init_type "mean" \
 --oa_init_type "maxmin" \
 --no-adaptive_online_rotation_R4 \
---adaptive_mixed_precision \
+--no-adaptive_mixed_precision \
 --adapt_R4_percentage 0.1 \
 --adapt_activation_percentage 0.06 \
 --adapt_need_sample 4 \

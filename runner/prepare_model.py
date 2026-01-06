@@ -444,7 +444,7 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
                 static_rtn_fwrd(model)
         
         if True:
-            model = rotllm_transform_to_executorch(model, batch, model_args, R4)
+            model = rotllm_transform_to_executorch(model, batch, model_args, R4, local_rank)
 
         return model, None, None, None
     

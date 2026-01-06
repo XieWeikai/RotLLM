@@ -120,7 +120,7 @@ def runner() -> None:
         optimizer = SGDG(
             [
                 {"params": R_trainable_parameters, "lr": training_args.learning_rate, "momentum": 0.9, "stiefel": True},
-                {"params": q_trainable_parameters, "lr": training_args.learning_rate / 10, "momentum": 0.9, "nesterov": False},
+                {"params": q_trainable_parameters, "lr": training_args.learning_rate, "momentum": 0.9, "nesterov": False},
             ],
             lr=training_args.learning_rate
         )
@@ -153,7 +153,7 @@ def runner() -> None:
             
         fq_dict = collect_fakequant_configs(model, "txt/after_train_quant_config.txt", write_to_file=True)
         for key, value in fq_dict.items():
-            if "outActQuant" not in key and "qQuant" not in name and "kQuant" not in name and "vQuant" not in name:
+            if "outActQuant" not in key and "qQuant" not in key and "kQuant" not in key and "vQuant" not in key:
                 R_dict[f"{key}.config.num_bits"] = value.num_bits
 
         # 保存需要 online rotation R4 的层
