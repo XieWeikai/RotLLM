@@ -14,18 +14,61 @@ ActivationQDQ_to_FakeQuantizer = {
     "self_attn.q_proj_input_qdq": "self_attn.q_proj.actQuant",
     "self_attn.q_proj_output_qdq": "self_attn.q_proj.outActQuant",
     "self_attn.k_proj_output_qdq": "self_attn.k_proj.outActQuant",
-    "self_attn.v_cast_to_int16_qdq": "self_attn.v_proj.outActQuant",
+    "self_attn.v_proj_output_qdq": "self_attn.v_proj.outActQuant",
     # "self_attn.q_rope_add_0_output_qdq": "self_attn.apply_rotary_pos_emb_qk_rotation_wrapper.qQuant",
     # "self_attn.k_cast_to_int8_qdq": "self_attn.apply_rotary_pos_emb_qk_rotation_wrapper.kQuant",
     # "self_attn.v_cast_to_int8_qdq": "self_attn.v_proj.my_Flinear_v_quant_wrapper.vQuant",
-    "self_attn.attn_value_matmul_output_qdq": "self_attn.o_proj.actQuant",
-    "add_0_lhs_input_qdq": "self_attn.o_proj.outActQuant",
+    "self_attn.o_proj_input_qdq": "self_attn.o_proj.actQuant",
+    "o_proj_output_qdq": "self_attn.o_proj.outActQuant",
     "mlp.up_proj_input_qdq": "mlp.up_proj.actQuant",
     "mlp.up_proj_output_qdq": "mlp.up_proj.outActQuant",
     "mlp.gate_proj_output_qdq": "mlp.gate_proj.outActQuant",
     "mlp.down_proj_input_qdq": "mlp.down_proj.actQuant",
-    "add_1_lhs_input_qdq": "mlp.down_proj.outActQuant"
+    "down_proj_output_qdq": "mlp.down_proj.outActQuant"
 }
+
+
+MODEL_IMPL = {
+    "llama": {
+        "module": ".modeling_llama",
+        "class": "LlamaForCausalLM",
+    },
+    "smollm": {
+        "module": ".modeling_smollm",
+        "class": "LlamaForCausalLM",
+    },
+    "qwen2": {
+        "module": ".modeling_qwen2",
+        "class": "Qwen2ForCausalLM",
+    },
+    "qwen3": {
+        "module": ".modeling_qwen3",
+        "class": "Qwen3ForCausalLM",
+    },
+}
+
+
+def detect_model_from_path(input_model: str) -> str:
+    """
+    根据模型 checkpoint 路径或名字，返回 model_type
+    输出：
+        - "smollm"
+        - "llama"
+        - "qwen2"
+        - "qwen3"
+    """
+    path = input_model.lower()
+    if "smollm" in path:
+        return "smollm"
+    elif "llama" in path:
+        return "llama"
+    elif "qwen2" in path:
+        return "qwen2"
+    elif "qwen3" in path:
+        return "qwen3"
+    else:
+        raise ValueError(f"Cannot detect model type from input_model={input_model}")
+
 
 
 def get_module_by_name_attr(model, name: str):
@@ -87,24 +130,19 @@ def rotllm_transform_to_executorch(model_rotllm_cuda, batch, model_args, R4, loc
     device = model_rotllm_cuda.device
     model_rotllm = model_rotllm_cuda.cpu()
     del model_rotllm_cuda
+    torch.cuda.empty_cache()
 
-    model_type = model_rotllm.config.model_type
-    model_classes_name = {
-        "qwen2": "Qwen2ForCausalLM",
-        "qwen3": "Qwen3ForCausalLM",
-    }
-    model_class = None
-    model_class_name = model_classes_name.get(model_type)
-    if model_class_name is None:
-        raise ValueError(f"Executorch: Unsupported model_type: {model_type}")
-    try:
-        modeling_module = importlib.import_module(f".modeling_{model_type}", package=__package__)
-    except ModuleNotFoundError:
-        raise ImportError(f"Cannot find modeling module for '{model_type}' (expected ./modeling_{model_type}.py)")
-
-    model_class = getattr(modeling_module, model_class_name)
+    model_type = detect_model_from_path(model_args.input_model)
+    impl = MODEL_IMPL[model_type]
+    if local_rank == 0:
+        log.info(f"Try to use {model_type} model.")
+    # 动态 import
+    modeling_module = importlib.import_module(impl["module"], package=__package__)
+    model_class = getattr(modeling_module, impl["class"])
     if local_rank == 0:
         log.info(f"✅ Successfully loaded {model_class.__name__}.")
+
+
     model_executorch = model_class.from_pretrained(model_args.input_model, attn_implementation="eager").to(device=device)
 
     untie_word_embeddings(model_executorch)

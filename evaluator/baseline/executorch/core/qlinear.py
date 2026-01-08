@@ -29,11 +29,9 @@ class QLinear(nn.Module):
             ):
                 _ = self.weight_quant(self.weight)
                 self.weight_quant.disable_observer()
-                s = self.weight_quant.scale
             # Compatible with custom LPBQ logic
             elif hasattr(self.weight_quant, "freeze"):
                 self.weight_quant.freeze(self.weight.detach())
-                s = self.weight_quant.scale_2_fp32
 
     def disable_fakequant(self):
         """Completely turn off quantization noise and return to floating point mode"""
@@ -79,21 +77,18 @@ class DoubleQuantizer(nn.Module):
         super().__init__()
         self.block_size = block_size
         self.register_buffer("is_frozen", torch.tensor(False))
-        self.register_buffer("scale_2_fp32", None)
-        self.register_buffer("scale_1_uint4", None)
-        self.register_buffer("weight_q", None)
         self.w_recon_cached = None  # Cache dequantized weights for acceleration
         self.quant = True
 
     def freeze(self, w):
         # Run complete double quantization and store in buffer
-        self.w_recon_cached = self.quantize_dequantize(w, save_buffers=True)
+        self.w_recon_cached = self.quantize_dequantize(w)
         self.is_frozen = torch.tensor(True)
     
     def disable_fake_quant(self):
         self.quant = False
 
-    def quantize_dequantize(self, w, save_buffers=False):
+    def quantize_dequantize(self, w):
         out_channels, in_channels = w.shape
         # 1. Padding handling
         pad_len = (self.block_size - in_channels % self.block_size) % self.block_size
@@ -113,13 +108,8 @@ class DoubleQuantizer(nn.Module):
         s1_recon = s1_q * s2
 
         # Level 3: Quantize Weight to Int4
-        w_q = (w_reshaped / s1_recon).round().clamp(-8, 7)
+        w_q = (w_reshaped / (s1_recon + 1e-8)).round().clamp(-8, 7)
         w_recon = w_q * s1_recon
-
-        if save_buffers:
-            self.scale_2_fp32 = s2.detach()
-            self.scale_1_uint4 = s1_q.detach().to(torch.uint8)
-            self.weight_q = w_q.detach().to(torch.int8)
 
         # Restore shape
         w_out = w_recon.view(out_channels, -1)

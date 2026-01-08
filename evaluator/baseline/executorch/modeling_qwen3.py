@@ -189,7 +189,7 @@ class Qwen3Attention(nn.Module):
             bits=kv_act_bits, qscheme=torch.per_tensor_symmetric
         )
 
-        self.v_cast_to_int16_qdq = ActivationQDQ(bits=act_bits)
+        self.v_proj_output_qdq = ActivationQDQ(bits=act_bits)
         self.qk_matmul_output_qdq = ActivationQDQ(bits=act_bits)
         self.scaling_qdq = ActivationQDQ(bits=act_bits)
         self.neg_20_qdq = ActivationQDQ(bits=act_bits)
@@ -197,7 +197,7 @@ class Qwen3Attention(nn.Module):
         self.mul_0_output_qdq = ActivationQDQ(bits=act_bits)
         self.minus_0_output_qdq = ActivationQDQ(bits=act_bits)
         self.softmax_output_qdq = ActivationQDQ(bits=act_bits)
-        self.attn_value_matmul_output_qdq = ActivationQDQ(bits=act_bits)
+        self.o_proj_input_qdq = ActivationQDQ(bits=act_bits)
 
 
     @deprecate_kwarg("past_key_value", new_name="past_key_values", version="4.58")
@@ -239,7 +239,7 @@ class Qwen3Attention(nn.Module):
         )
 
         key_states = self.k_cast_to_int8_qdq(key_states)
-        value_states = self.v_cast_to_int8_qdq(self.v_cast_to_int16_qdq(value_states))
+        value_states = self.v_cast_to_int8_qdq(self.v_proj_output_qdq(value_states))
 
         if past_key_values is not None:
             # sin and cos are specific to RoPE models; cache_position needed for the static cache
@@ -277,7 +277,7 @@ class Qwen3Attention(nn.Module):
                 query_states.dtype
             )
         )
-        attn_output = self.attn_value_matmul_output_qdq(
+        attn_output = self.o_proj_input_qdq(
             torch.matmul(attn_weights, value_states)
         )
         attn_output = attn_output.transpose(1, 2).contiguous()
@@ -305,9 +305,9 @@ class Qwen3DecoderLayer(GradientCheckpointingLayer):
 
         # QDQ
         self.input_layernorm_input_qdq = ActivationQDQ(bits=act_bits)
-        self.add_0_lhs_input_qdq = ActivationQDQ(bits=act_bits)
+        self.o_proj_output_qdq = ActivationQDQ(bits=act_bits)
         self.add_0_output_qdq = ActivationQDQ(bits=act_bits)
-        self.add_1_lhs_input_qdq = ActivationQDQ(bits=act_bits)
+        self.down_proj_output_qdq = ActivationQDQ(bits=act_bits)
 
     @deprecate_kwarg("past_key_value", new_name="past_key_values", version="4.58")
     def forward(
@@ -338,14 +338,14 @@ class Qwen3DecoderLayer(GradientCheckpointingLayer):
             **kwargs,
         )
         hidden_states = self.add_0_output_qdq(
-            residual + self.add_0_lhs_input_qdq(hidden_states)
+            residual + self.o_proj_output_qdq(hidden_states)
         )
 
         # Fully Connected
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = self.mlp(hidden_states)
-        hidden_states = residual + self.add_1_lhs_input_qdq(hidden_states)
+        hidden_states = residual + self.down_proj_output_qdq(hidden_states)
         return hidden_states
 
 

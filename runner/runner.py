@@ -119,8 +119,8 @@ def runner() -> None:
         # Applicable to RotLLM
         optimizer = SGDG(
             [
-                {"params": R_trainable_parameters, "lr": training_args.learning_rate, "momentum": 0.9, "stiefel": True},
-                {"params": q_trainable_parameters, "lr": training_args.learning_rate, "momentum": 0.9, "nesterov": False},
+                {"params": R_trainable_parameters, "lr": training_args.learning_rate, "momentum": 0.0, "stiefel": True},
+                {"params": q_trainable_parameters, "lr": training_args.learning_rate / 10, "momentum": 0.0, "nesterov": False},
             ],
             lr=training_args.learning_rate
         )
