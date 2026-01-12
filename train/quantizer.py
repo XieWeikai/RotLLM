@@ -263,7 +263,7 @@ class StaticLearnableFakeQuantizeFunction(torch.autograd.Function):
             # grad_factor = 1.0 / math.sqrt((input.numel() // input.shape[-1]) * max_val)
             grad_factor = 1.0 / math.sqrt(input.shape[-1] * max_val)
 
-        grad_factor = 1.0
+        # grad_factor = 1.0
         # 1. Input gradient
         grad_input = grad_output
         
@@ -311,8 +311,8 @@ class StaticLearnableFakeQuantizeFunction(torch.autograd.Function):
         assert torch.isfinite(grad_scale).all(), "grad_scale has NaN or Inf"
         assert torch.isfinite(grad_input).all(), "grad_input has NaN or Inf"
 
-        grad_scale = grad_scale.clamp(min=-1.0, max=1.0)
-        grad_z = grad_z.clamp(min=-1.0, max=1.0) if grad_z is not None else None
+        # grad_scale = grad_scale.clamp(min=-0.1, max=0.1)
+        # grad_z = grad_z.clamp(min=-0.1, max=0.1) if grad_z is not None else None
 
         input = input.to(input_type)
         return grad_input, grad_scale, grad_z, None, None, None, None    

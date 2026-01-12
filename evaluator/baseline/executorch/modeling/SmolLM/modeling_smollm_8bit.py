@@ -48,14 +48,14 @@ from transformers.models.llama.configuration_llama import LlamaConfig
 
 
 # Replace linear, rms_norm with:
-from .core.rms_norm import QRMSNorm
-from .core.qlinear import (
+from ...core.rms_norm import QRMSNorm
+from ...core.qlinear import (
     QLinearLPBQ,
-    QLinearW8A16_PerChannelSym,
+    QLinearW8_PerChannelSym,
 )
-from .core.qdq import ActivationQDQ
+from ...core.qdq import ActivationQDQ
 
-act_bits = 16
+act_bits = 8
 kv_act_bits = 8
 
 
@@ -112,13 +112,13 @@ class LlamaMLP(nn.Module):
         self.hidden_size = config.hidden_size
         self.intermediate_size = config.intermediate_size
           
-        self.gate_proj = QLinearW8A16_PerChannelSym(
+        self.gate_proj = QLinearW8_PerChannelSym(
             self.hidden_size, self.intermediate_size, bias=config.mlp_bias
         )
-        self.up_proj = QLinearW8A16_PerChannelSym(
+        self.up_proj = QLinearW8_PerChannelSym(
             self.hidden_size, self.intermediate_size, bias=config.mlp_bias
         )
-        self.down_proj = QLinearW8A16_PerChannelSym(
+        self.down_proj = QLinearW8_PerChannelSym(
             self.intermediate_size, self.hidden_size, bias=config.mlp_bias
         )
 
@@ -178,22 +178,22 @@ class LlamaAttention(nn.Module):
         self.attention_dropout = config.attention_dropout
         self.is_causal = True
 
-        self.q_proj = QLinearW8A16_PerChannelSym(
+        self.q_proj = QLinearW8_PerChannelSym(
             config.hidden_size,
             config.num_attention_heads * self.head_dim,
             bias=config.attention_bias,
         )
-        self.k_proj = QLinearW8A16_PerChannelSym(
+        self.k_proj = QLinearW8_PerChannelSym(
             config.hidden_size,
             config.num_key_value_heads * self.head_dim,
             bias=config.attention_bias,
         )
-        self.v_proj = QLinearW8A16_PerChannelSym(
+        self.v_proj = QLinearW8_PerChannelSym(
             config.hidden_size,
             config.num_key_value_heads * self.head_dim,
             bias=config.attention_bias,
         )
-        self.o_proj = QLinearW8A16_PerChannelSym(
+        self.o_proj = QLinearW8_PerChannelSym(
             config.num_attention_heads * self.head_dim,
             config.hidden_size,
             bias=config.attention_bias,
@@ -315,9 +315,7 @@ class LlamaDecoderLayer(GradientCheckpointingLayer):
         )
 
         # QDQ
-        self.input_layernorm_input_qdq = ActivationQDQ(bits=act_bits)
         self.o_proj_output_qdq = ActivationQDQ(bits=act_bits)
-        self.add_0_output_qdq = ActivationQDQ(bits=act_bits)
         self.down_proj_output_qdq = ActivationQDQ(bits=act_bits)
 
     @deprecate_kwarg("past_key_value", new_name="past_key_values", version="4.58")
@@ -332,7 +330,6 @@ class LlamaDecoderLayer(GradientCheckpointingLayer):
         position_embeddings: Optional[tuple[torch.Tensor, torch.Tensor]] = None,  # necessary, but kept here for BC
         **kwargs: Unpack[TransformersKwargs],
     ) -> torch.Tensor:
-        hidden_states = self.input_layernorm_input_qdq(hidden_states)
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
         # Self Attention
@@ -346,9 +343,8 @@ class LlamaDecoderLayer(GradientCheckpointingLayer):
             position_embeddings=position_embeddings,
             **kwargs,
         )
-        hidden_states = self.add_0_output_qdq(
-            residual + self.o_proj_output_qdq(hidden_states)
-        )
+        hidden_states = residual + self.o_proj_output_qdq(hidden_states)
+        
 
         # Fully Connected
         residual = hidden_states
@@ -512,7 +508,7 @@ class LlamaForCausalLM(LlamaPreTrainedModel, GenerationMixin):
         super().__init__(config)
         self.model = LlamaModel(config)
         self.vocab_size = config.vocab_size
-        self.lm_head = QLinearW8A16_PerChannelSym(
+        self.lm_head = QLinearW8_PerChannelSym(
             config.hidden_size, config.vocab_size, bias=False
         )
         self.mllm_qualcomm_max_length = None

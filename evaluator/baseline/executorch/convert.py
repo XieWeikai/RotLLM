@@ -4,7 +4,7 @@ import copy
 import importlib
 
 
-from .core.qlinear import QLinear, QLinearLPBQ, QLinearW8A16_PerChannelSym
+from .core.qlinear import QLinear
 from .core.rms_norm import QRMSNorm
 from .core.qdq import ActivationQDQ
 from train.train_utils import untie_word_embeddings
@@ -12,37 +12,37 @@ from utils.utils import log
 
 ActivationQDQ_to_FakeQuantizer = {
     "self_attn.q_proj_input_qdq": "self_attn.q_proj.actQuant",
-    "self_attn.q_proj_output_qdq": "self_attn.q_proj.outActQuant",
-    "self_attn.k_proj_output_qdq": "self_attn.k_proj.outActQuant",
-    "self_attn.v_proj_output_qdq": "self_attn.v_proj.outActQuant",
+    # "self_attn.q_proj_output_qdq": "self_attn.q_proj.outActQuant",
+    # "self_attn.k_proj_output_qdq": "self_attn.k_proj.outActQuant",
+    # "self_attn.v_proj_output_qdq": "self_attn.v_proj.outActQuant",
     # "self_attn.q_rope_add_0_output_qdq": "self_attn.apply_rotary_pos_emb_qk_rotation_wrapper.qQuant",
     # "self_attn.k_cast_to_int8_qdq": "self_attn.apply_rotary_pos_emb_qk_rotation_wrapper.kQuant",
     # "self_attn.v_cast_to_int8_qdq": "self_attn.v_proj.my_Flinear_v_quant_wrapper.vQuant",
     "self_attn.o_proj_input_qdq": "self_attn.o_proj.actQuant",
-    "o_proj_output_qdq": "self_attn.o_proj.outActQuant",
+    # "o_proj_output_qdq": "self_attn.o_proj.outActQuant",
     "mlp.up_proj_input_qdq": "mlp.up_proj.actQuant",
-    "mlp.up_proj_output_qdq": "mlp.up_proj.outActQuant",
-    "mlp.gate_proj_output_qdq": "mlp.gate_proj.outActQuant",
+    # "mlp.up_proj_output_qdq": "mlp.up_proj.outActQuant",
+    # "mlp.gate_proj_output_qdq": "mlp.gate_proj.outActQuant",
     "mlp.down_proj_input_qdq": "mlp.down_proj.actQuant",
-    "down_proj_output_qdq": "mlp.down_proj.outActQuant"
+    # "down_proj_output_qdq": "mlp.down_proj.outActQuant"
 }
 
 
 MODEL_IMPL = {
     "llama": {
-        "module": ".modeling_llama",
+        "module": ".modeling.Llama.modeling_llama",
         "class": "LlamaForCausalLM",
     },
     "smollm": {
-        "module": ".modeling_smollm",
+        "module": ".modeling.SmolLM.modeling_smollm",
         "class": "LlamaForCausalLM",
     },
     "qwen2": {
-        "module": ".modeling_qwen2",
+        "module": ".modeling.Qwen.modeling_qwen2",
         "class": "Qwen2ForCausalLM",
     },
     "qwen3": {
-        "module": ".modeling_qwen3",
+        "module": ".modeling.Qwen.modeling_qwen3",
         "class": "Qwen3ForCausalLM",
     },
 }
@@ -93,7 +93,7 @@ def freeze_qwen3_rmsnorm_weight(m):
         m.freeze_weight()
 
 def freeze_qwen3_linear_weight(m):
-    if isinstance(m, QLinearLPBQ) or isinstance(m, QLinearW8A16_PerChannelSym):
+    if isinstance(m, QLinear):
         m.freeze_weight()
 
 def disable_qdq_observer(m):
@@ -128,6 +128,7 @@ def enable_activation_fakequant(model):
 
 def rotllm_transform_to_executorch(model_rotllm_cuda, batch, model_args, R4, local_rank):
     device = model_rotllm_cuda.device
+    dtype = model_rotllm_cuda.dtype
     model_rotllm = model_rotllm_cuda.cpu()
     del model_rotllm_cuda
     torch.cuda.empty_cache()
@@ -140,10 +141,10 @@ def rotllm_transform_to_executorch(model_rotllm_cuda, batch, model_args, R4, loc
     modeling_module = importlib.import_module(impl["module"], package=__package__)
     model_class = getattr(modeling_module, impl["class"])
     if local_rank == 0:
-        log.info(f"✅ Successfully loaded {model_class.__name__}.")
+        log.info(f"✅ Successfully loaded {model_class.__name__} from {impl['module']}.")
 
 
-    model_executorch = model_class.from_pretrained(model_args.input_model, attn_implementation="eager").to(device=device)
+    model_executorch = model_class.from_pretrained(model_args.input_model, torch_dtype=dtype, attn_implementation="eager").to(device=device)
 
     untie_word_embeddings(model_executorch)
 

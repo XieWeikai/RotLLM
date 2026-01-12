@@ -14,17 +14,16 @@
 # For example: bash scripts/train.sh /data/share/SmolLM2-1.7B-Instruct 8 8 32 32
 # For example: bash scripts/train.sh /data/share/Qwen3-1.7B 8 8 32 32
 export HF_ENDPOINT=https://hf-mirror.com
-CUDA_VISIBLE_DEVICES=1,2 torchrun --nnodes=1 --nproc_per_node=2 --master_port=45678 -m runner.runner \
+CUDA_VISIBLE_DEVICES=1,2,3,4 torchrun --nnodes=1 --nproc_per_node=4 --master_port=45678 -m runner.runner \
 --stage "train" \
 --input_model $1  \
---output_rotation_path "/data/zjh/tensor_0105_test_train/SmolLM2_4_48_32_32_01_001_1024_512_v_c0_backward.bin" \
---output_dir "/data/zjh/tensor_0105_test_train/outputs" \
---logging_dir "/data/zjh/tensor_0105_test_train/logs" \
+--output_rotation_path "/data/zjh/tensor_final/SmolLM2_4_8_32_32_01_001_1024_512_i.bin" \
+--output_dir "/data/zjh/tensor_final/outputs" \
+--logging_dir "/data/zjh/tensor_final/logs" \
 --model_max_length 2048 \
---fp16 False \
 --bf16 True \
 --log_on_each_node False \
---per_device_train_batch_size 4 \
+--per_device_train_batch_size 2 \
 --gradient_accumulation_steps 2 \
 --max_steps 1024 \
 --logging_steps 10 \
@@ -50,10 +49,11 @@ CUDA_VISIBLE_DEVICES=1,2 torchrun --nnodes=1 --nproc_per_node=2 --master_port=45
 --no-q_sym \
 --no-k_sym \
 --no-v_sym \
---a_init_type "maxmin" \
+--a_init_type "mean" \
 --oa_init_type "maxmin" \
 --no-adaptive_online_rotation_R4 \
---adaptive_mixed_precision \
+--no-adaptive_mixed_precision \
 --adapt_R4_percentage 0.1 \
 --adapt_activation_percentage 0.06 \
 --adapt_need_sample 4 \
+--max_grad_norm 1.0 \

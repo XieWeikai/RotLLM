@@ -84,7 +84,7 @@ def evaluator(model, testenc, seqlen, args):
 
     nlls = []
     loss_fct = torch.nn.CrossEntropyLoss(reduction="none")
-    for i in range(nbatches):
+    for i in tqdm(range(nbatches), desc="(Eval) PPL"):
         hidden_states = inps[i]
         if model.model.norm is not None:
             hidden_states = model.model.norm(hidden_states)

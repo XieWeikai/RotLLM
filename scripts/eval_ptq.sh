@@ -14,15 +14,14 @@
 # For example: bash scripts/eval_ptq.sh /data/share/SmolLM2-1.7B-Instruct 8 8 32 32
 # For example: bash scripts/eval_ptq.sh /data/share/Qwen3-1.7B 8 8 32 32
 export HF_ENDPOINT=https://hf-mirror.com
-CUDA_VISIBLE_DEVICES=6 torchrun --nnodes=1 --nproc_per_node=1 --master_port=60001 -m runner.runner \
+CUDA_VISIBLE_DEVICES=7 torchrun --nnodes=1 --nproc_per_node=1 --master_port=60008 -m runner.runner \
 --stage "eval" \
 --input_model $1 \
 --do_train False \
 --do_eval True \
 --per_device_eval_batch_size 4 \
 --model_max_length 2048 \
---fp16 False \
---bf16 True \
+--bf16 False \
 --save_safetensors False \
 --mode "static" \
 --granularity "per_tensor" \
@@ -34,7 +33,7 @@ CUDA_VISIBLE_DEVICES=6 torchrun --nnodes=1 --nproc_per_node=1 --master_port=6000
 --oa_init_type "maxmin" \
 --q_init_type "maxmin" \
 --k_init_type "maxmin" \
---v_init_type "mean" \
+--v_init_type "maxmin" \
 --w_bits $2 \
 --a_bits $3 \
 --q_bits $4 \
@@ -42,11 +41,11 @@ CUDA_VISIBLE_DEVICES=6 torchrun --nnodes=1 --nproc_per_node=1 --master_port=6000
 --v_bits $4 \
 --oa_bits $5 \
 --no-a_sym \
---q_sym \
+--no-q_sym \
 --k_sym \
 --v_sym \
 --no-oa_sym \
---no-task \
+--task \
 --no-adaptive_online_rotation_R4 \
 --no-adaptive_mixed_precision \
 --adapt_R4_percentage 0.1 \

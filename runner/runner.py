@@ -34,7 +34,7 @@ def runner() -> None:
     torch.distributed.barrier()
 
     device = "cuda"
-    dtype = torch.bfloat16 if training_args.bf16 else torch.float16
+    dtype = torch.bfloat16 if training_args.bf16 else torch.float32
 
     model_orig = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=model_args.input_model, torch_dtype=dtype).to(device=device)
 
