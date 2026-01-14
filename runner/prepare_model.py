@@ -23,6 +23,7 @@ from evaluator.utils.static_rtn import static_rtn_fwrd
 from evaluator.utils.trainable_static_rtn import trainable_static_rtn_fwrd
 from train.train_utils import build_rotation_map, untie_word_embeddings
 from evaluator.baseline.executorch.convert import rotllm_transform_to_executorch
+from utils.adapt_down_16bits_input import adapt_choose_down_16bits_input
 
 
 def replace_linear_with_rotation_quant(
@@ -260,11 +261,15 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
     if ptq_args.adaptive_online_rotation_R4:
         R4 = [NoLearnRotateModule(get_orthogonal_matrix(hidden_dim, mode="identity", device=device)) for _ in range(num_layers)]  
 
+    if ptq_args.adaptive_down_input_activation_16bits:
+        R4 = [NoLearnRotateModule(get_orthogonal_matrix(hidden_dim, mode="identity", device=device)) for _ in range(num_layers)] 
+    assert not ptq_args.adaptive_online_rotation_R4 or not ptq_args.adaptive_down_input_activation_16bits, "Adaptive 16 bits and adaptive R4 cannot be used at the same time."
+
     
     if ptq_args.stage == "eval":
         if ptq_args.trainable_R:
             assert model_args.output_rotation_path is not None, "We must give the output_rotation_path in the command line."
-            assert not ptq_args.adaptive_online_rotation_R4 and not ptq_args.adaptive_mixed_precision, "trainable_R and the adaptive strategy cannot be used at the same time."
+            assert not ptq_args.adaptive_online_rotation_R4 and not ptq_args.adaptive_mixed_precision and not ptq_args.adaptive_down_input_activation_16bits, "trainable_R and the adaptive strategy cannot be used at the same time."
 
             R_path = model_args.output_rotation_path
             R1.weight.data.copy_(
@@ -370,11 +375,11 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
             assert batch is not None, "We need to prepare the initial sample set required for static quantization."
             model.eval()
 
-            if ptq_args.adaptive_mixed_precision or ptq_args.adaptive_online_rotation_R4:
+            if ptq_args.adaptive_mixed_precision or ptq_args.adaptive_online_rotation_R4 or ptq_args.adaptive_down_input_activation_16bits:
                 batch_find_threshold = batch[-ptq_args.adapt_need_sample:]
                 batch = batch[:ptq_args.need_sample_for_static_init]
 
-                if ptq_args.adaptive_online_rotation_R4:
+                if ptq_args.adaptive_online_rotation_R4 or ptq_args.adaptive_down_input_activation_16bits:
                     # 将 donw_proj 层的 activation 修改为 8 bit
                     from utils.adapt_online_rotation import modify_down_proj_activation_8bit
                     model = modify_down_proj_activation_8bit(model)
@@ -389,12 +394,15 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
                 if local_rank == 0:
                     log.info(f"✅ Init scale and zero_point ok!")
 
-            if ptq_args.adaptive_mixed_precision or ptq_args.adaptive_online_rotation_R4:
+            if ptq_args.adaptive_mixed_precision or ptq_args.adaptive_online_rotation_R4 or ptq_args.adaptive_down_input_activation_16bits:
                 assert batch_find_threshold is not None, "batch_find_threshold should not be empty."
                 
                 if ptq_args.adaptive_online_rotation_R4:
                     # 选择在线旋转矩阵 R4
                     model, adaptive_R4 = adapt_choose_online_rotation(model, R4_hadamard, batch, batch_find_threshold, ptq_args, local_rank)
+
+                if ptq_args.adaptive_down_input_activation_16bits:
+                    model = adapt_choose_down_16bits_input(model, batch, batch_find_threshold, ptq_args, local_rank)
 
                 if ptq_args.adaptive_mixed_precision:
                     model = adapt_modify_quantization_precision(model, adaptive_R4, batch, batch_find_threshold, ptq_args, local_rank)
@@ -425,13 +433,13 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
                 if hasattr(module, "zero_point"):
                     R_dict[f"{name}.zero_point"] = module.zero_point
         
-        with open("./txt/scale_init.txt", "w") as f:
-            for k, v in R_dict.items():
-                if v is None:
-                    f.write(f"{k}: None\n")
-                else:
-                    # 标量 scale / zero_point
-                    f.write(f"{k}: {v.detach().cpu().item()}\n")
+        # with open("./txt/scale_init.txt", "w") as f:
+        #     for k, v in R_dict.items():
+        #         if v is None:
+        #             f.write(f"{k}: None\n")
+        #         else:
+        #             # 标量 scale / zero_point
+        #             f.write(f"{k}: {v.detach().cpu().item()}\n")
 
         return model, adaptive_R4, R_trainable_parameters, q_trainable_parameters
     else:

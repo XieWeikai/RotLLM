@@ -94,7 +94,7 @@ def runner() -> None:
     if ptq_args.mode == "static":
         # Prepare the calibration set for static quantization, used to initialize scale and zero_point
         num_samples = ptq_args.need_sample_for_static_init
-        if ptq_args.adaptive_mixed_precision or ptq_args.adaptive_online_rotation_R4:
+        if ptq_args.adaptive_mixed_precision or ptq_args.adaptive_online_rotation_R4 or ptq_args.adaptive_down_input_activation_16bits:
             num_samples += ptq_args.adapt_need_sample
         samples = [train_data[i + 10]["input_ids"] for i in range(num_samples)]
         batch = torch.tensor(samples).to(device=model_orig.device)
@@ -108,6 +108,10 @@ def runner() -> None:
         model_args,
         batch,
     )
+    # model = model_orig
+    # adaptive_R4, R_trainable_parameters, q_trainable_parameters = [], [], []
+
+    check_dict = collect_fakequant_configs(model, "txt/check_config.txt", write_to_file=True)
 
     if ptq_args.stage == "train":
         model.train()
@@ -168,23 +172,23 @@ def runner() -> None:
                 path,
             )
 
-        if local_rank == 0:
-            dict = {}
-            from train.train_parameter import FakeQuantizer
-            for name, module in model.named_modules():
-                if isinstance(module, FakeQuantizer):
-                    if hasattr(module, "scale"):
-                        dict[f"{name}.scale"] = module.scale
-                    if hasattr(module, "zero_point"):
-                        dict[f"{name}.zero_point"] = module.zero_point
+        # if local_rank == 0:
+        #     dict = {}
+        #     from train.train_parameter import FakeQuantizer
+        #     for name, module in model.named_modules():
+        #         if isinstance(module, FakeQuantizer):
+        #             if hasattr(module, "scale"):
+        #                 dict[f"{name}.scale"] = module.scale
+        #             if hasattr(module, "zero_point"):
+        #                 dict[f"{name}.zero_point"] = module.zero_point
             
-            with open("./txt/scale_train.txt", "w") as f:
-                for k, v in dict.items():
-                    if v is None:
-                        f.write(f"{k}: None\n")
-                    else:
-                        # 标量 scale / zero_point
-                        f.write(f"{k}: {v.detach().cpu().item()}\n")
+        #     with open("./txt/scale_train.txt", "w") as f:
+        #         for k, v in dict.items():
+        #             if v is None:
+        #                 f.write(f"{k}: None\n")
+        #             else:
+        #                 # 标量 scale / zero_point
+        #                 f.write(f"{k}: {v.detach().cpu().item()}\n")
     else:
         log.info("Model init completed for evaling...")
         log.info("💡Start to eval...")

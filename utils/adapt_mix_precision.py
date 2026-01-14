@@ -164,6 +164,12 @@ def adapt_modify_quantization_precision(model, adaptive_R4, batch, batch_find_th
                 layers[i].mlp.down_proj.actQuant.config.init_type = "maxmin"
                 no_R4_count += 1
 
+    if ptq_args.adaptive_down_input_activation_16bits:
+        layers = model.model.layers
+        for i in range(len(layers)):
+            layers[i].mlp.down_proj.actQuant.config.init_type = "maxmin"
+            no_R4_count += 1
+
 
     if local_rank == 0:
         log.info("\n===== Quantization Modification Summary =====")

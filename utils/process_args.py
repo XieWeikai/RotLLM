@@ -70,6 +70,14 @@ def parser_gen():
         If it is true, automatically selecting certain important positions to add rotation matrix R4.""",
     )
     parser.add_argument(
+        "--adaptive_down_input_activation_16bits",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="""If it is true, we disable the online R4 rotation for the input activations of all down layers. 
+        For layers with high quantization sensitivity, 16-bit quantization is applied, while the remaining layers use 8-bit quantization. 
+        In this setting, 4-bit quantization is not supported.""",
+    )
+    parser.add_argument(
         "--adapt_need_sample",
         type=int,
         default=0,
@@ -492,5 +500,8 @@ def process_args_ptq():
     all_qconfigs.out_activation.clip_ratio = getattr(ptq_args, "oa_clip_ratio")
 
     all_qconfigs.out_activation.int8_down_proj = getattr(ptq_args, "int8_down_proj")
+
+
+    # all_qconfigs.weight.granularity = "per_channel"
 
     return model_args, training_args, ptq_args, all_qconfigs

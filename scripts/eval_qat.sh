@@ -43,6 +43,6 @@ CUDA_VISIBLE_DEVICES=6 torchrun --nnodes=1 --nproc_per_node=1 --master_port=6000
 --k_sym \
 --v_sym \
 --no-oa_sym \
---output_rotation_path "/data/zjh/tensor_final/SmolLM2_8_8_32_32_01_001_1024_512_i.bin" \
+--output_rotation_path "/data/zjh/tensor_final/Qwen2_8_8_32_32_01_001_1024_512_i.bin" \
 --no-task \
 # --convert_model_path "/data/zjh/model_pth/Qwen3-rotated.pth" \

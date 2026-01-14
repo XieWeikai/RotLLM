@@ -54,18 +54,18 @@ def trainable_static_rtn_fwrd(model, batch, model_args):
         else:
             module.zero_point = None
 
-        # if num_bits_name in data.keys():
-        #     module.config.num_bits = data[num_bits_name]
+        if num_bits_name in data.keys():
+            module.config.num_bits = data[num_bits_name]
             
-        if "outActQuant" in name or "qQuant" in name or "kQuant" in name or "vQuant" in name:
-            module.config.need_sample_for_static_init = 16
+    #     if "outActQuant" in name or "qQuant" in name or "kQuant" in name or "vQuant" in name:
+    #         module.config.need_sample_for_static_init = 16
 
-    model.eval()
-    with torch.no_grad(): 
-        for i in tqdm(range(batch.size(0)), desc="Init scale and zero_point for static quant"):
-            sample = batch[i].unsqueeze(0)  # 保持 batch 维度
-            model(sample)
-        log.info("✅ Init scale and zero_point ok!")
+    # model.eval()
+    # with torch.no_grad(): 
+    #     for i in tqdm(range(batch.size(0)), desc="Init scale and zero_point for static quant"):
+    #         sample = batch[i].unsqueeze(0)  # 保持 batch 维度
+    #         model(sample)
+    #     log.info("✅ Init scale and zero_point ok!")
 
     # if model_args.convert_model_path is not None:
     #     convert_model(model, model_args.convert_model_path)
