@@ -90,6 +90,32 @@ class QLinearW8_PerTensorSym(QLinear):
         return F.linear(x_q, w_q, self.bias)
     
 
+# --- 1. W4 Per-Channel Scheme ---
+class QLinearW4_PerChannelSym(QLinear):
+    def __init__(self, in_features, out_features, bias=True):
+        super().__init__(in_features, out_features, bias)
+
+        # Weight: Int4 Per-Channel symmetric
+        self.weight_quant = FakeQuantize(
+            observer=PerChannelMinMaxObserver.with_args(
+                qscheme=torch.per_channel_symmetric,
+                dtype=torch.qint8,
+                ch_axis=0,  # Quantize output channels
+            ),
+            quant_min=-8,
+            quant_max=7,
+            dtype=torch.qint8,
+            qscheme=torch.per_channel_symmetric,
+        )
+
+    def forward(self, x):
+        # Activation quantization logic (add act_quant here if needed)
+        x_q = x
+        # Apply fake quantization: use fixed scale if frozen, otherwise update in real-time
+        w_q = self.weight_quant(self.weight)
+        return F.linear(x_q, w_q, self.bias)
+    
+
 # --- 1. W8 Per-Channel Scheme ---
 class QLinearW8_PerChannelSym(QLinear):
     def __init__(self, in_features, out_features, bias=True):

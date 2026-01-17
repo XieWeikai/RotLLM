@@ -53,7 +53,7 @@ from ...core.qlinear import (
     QLinearLPBQ,
     QLinearW8_PerChannelSym,
 )
-from ...core.qdq import ActivationQDQ
+from ...core.qdq import ActivationQDQ, FixedActivationQDQ
 
 act_bits = 16
 kv_act_bits = 8
@@ -133,7 +133,12 @@ class LlamaMLP(nn.Module):
         self.gate_proj_output_qdq = ActivationQDQ(bits=act_bits)
         self.act_output_qdq = ActivationQDQ(bits=act_bits)
         self.down_proj_input_qdq = ActivationQDQ(bits=act_bits)
-        self.sigmoid_output_qdq = ActivationQDQ(bits=act_bits)
+        # For sigmoid output: scale = 1 / (q_max - q_min + 1), zp = 0
+        # For 16-bit: q_min = 0, q_max = 65535
+        sigmoid_scale = 1.0 / (65535 - 0 + 1)  # 1 / 65536
+        self.sigmoid_output_qdq = FixedActivationQDQ(
+            scale=sigmoid_scale, zero_point=0, bits=act_bits
+        )
 
         self.R4 = None
 
@@ -285,7 +290,7 @@ class LlamaAttention(nn.Module):
                 torch.matmul(query_states, key_states.transpose(2, 3))
             )
             * self.scaling_qdq(
-                torch.ones(1, dtype=torch.float32, device=value_states.device)
+                torch.ones(1, dtype=value_states.dtype, device=value_states.device)
                 * self.scaling
             )
         )
@@ -296,7 +301,7 @@ class LlamaAttention(nn.Module):
         attn_vv = self.minus_0_output_qdq(
             attn_min
             + self.neg_20_qdq(
-                torch.ones(1, dtype=torch.float32, device=value_states.device) * (-20)
+                torch.ones(1, dtype=value_states.dtype, device=value_states.device) * (-20)
             )
         )
         attn_weights = torch.where(attention_mask == 0, attn_weights, attn_vv)
@@ -337,6 +342,10 @@ class LlamaDecoderLayer(GradientCheckpointingLayer):
         self.add_0_output_qdq = ActivationQDQ(bits=act_bits)
         self.down_proj_output_qdq = ActivationQDQ(bits=act_bits)
 
+        # Adaptive
+        self.is_8bit = False
+        self.down_proj_output_qdq_8bit = ActivationQDQ(bits=8)
+
     @deprecate_kwarg("past_key_value", new_name="past_key_values", version="4.58")
     def forward(
         self,
@@ -371,7 +380,11 @@ class LlamaDecoderLayer(GradientCheckpointingLayer):
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = self.mlp(hidden_states)
-        hidden_states = residual + self.down_proj_output_qdq(hidden_states)
+        
+        if not self.is_8bit:
+            hidden_states = residual + self.down_proj_output_qdq(hidden_states)
+        else:
+            hidden_states = residual + self.down_proj_output_qdq_8bit(hidden_states)
         return hidden_states
 
 @auto_docstring
@@ -471,6 +484,12 @@ class LlamaModel(LlamaPreTrainedModel):
             ).unsqueeze(0)
             self.mllm_max_cos_embedding, self.mllm_max_sin_embedding = self.rotary_emb(
                 hidden_states, max_position_ids
+            )
+            self.mllm_max_cos_embedding = self.mllm_max_cos_embedding.to(
+                inputs_embeds.dtype
+            )
+            self.mllm_max_sin_embedding = self.mllm_max_sin_embedding.to(
+                inputs_embeds.dtype
             )
             self.mllm_max_cos_embedding = self.cos_embedding_input_qdq(
                 self.mllm_max_cos_embedding

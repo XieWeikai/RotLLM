@@ -213,6 +213,8 @@ class StaticLearnableFakeQuantizeFunction(torch.autograd.Function):
         input_type = input.dtype
         input = input.to(scale.dtype)
 
+        scale = scale.clamp(min=1e-4)
+
         if zero_point is not None:
             zero_point = zero_point.round()
 

@@ -215,6 +215,14 @@ def rotllm_transform_to_executorch(model_rotllm_cuda, batch, model_args, R4, loc
         module_rotllm_copy = copy.deepcopy(module_rotllm)
         replace_module_by_name(model_executorch, name, module_rotllm_copy.to(device))
 
+    # Down_proj: Adaptive change A16_output according to A16_input
+    for i in range(model_executorch.config.num_hidden_layers):
+        layer = model_executorch.model.layers[i]
+        qdq = layer.mlp.down_proj_input_qdq
+
+        if hasattr(qdq, "config") and qdq.config.num_bits == 8:
+            layer.is_8bit = True
+            
     if local_rank == 0:
         log.info(f"✅ Successfully convert to executorch from RotLLM.") 
 

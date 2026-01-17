@@ -403,6 +403,7 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
 
                 if ptq_args.adaptive_down_input_activation_16bits:
                     model = adapt_choose_down_16bits_input(model, batch, batch_find_threshold, ptq_args, local_rank)
+                    adaptive_R4 = {i: False for i in range(num_layers)}
 
                 if ptq_args.adaptive_mixed_precision:
                     model = adapt_modify_quantization_precision(model, adaptive_R4, batch, batch_find_threshold, ptq_args, local_rank)
