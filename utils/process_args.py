@@ -502,6 +502,6 @@ def process_args_ptq():
     all_qconfigs.out_activation.int8_down_proj = getattr(ptq_args, "int8_down_proj")
 
 
-    all_qconfigs.weight.granularity = "per_channel"
+    # all_qconfigs.weight.granularity = "per_channel"
 
     return model_args, training_args, ptq_args, all_qconfigs
