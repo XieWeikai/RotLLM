@@ -50,13 +50,13 @@ class Qwen2MLP(nn.Module):
         self.hidden_size = config.hidden_size
         self.intermediate_size = config.intermediate_size
         self.gate_proj = QLinearLPBQ(
-            self.hidden_size, self.intermediate_size, bias=False, block_size=16
+            self.hidden_size, self.intermediate_size, bias=False, block_size=32
         )
         self.up_proj = QLinearLPBQ(
-            self.hidden_size, self.intermediate_size, bias=False, block_size=16
+            self.hidden_size, self.intermediate_size, bias=False, block_size=32
         )
         self.down_proj = QLinearLPBQ(
-            self.intermediate_size, self.hidden_size, bias=False, block_size=16
+            self.intermediate_size, self.hidden_size, bias=False, block_size=32
         )
 
         # QDQ
@@ -131,25 +131,25 @@ class Qwen2Attention(nn.Module):
             config.hidden_size,
             config.num_attention_heads * self.head_dim,
             bias=True,
-            block_size=16,
+            block_size=32,
         )
         self.k_proj = QLinearLPBQ(
             config.hidden_size,
             config.num_key_value_heads * self.head_dim,
             bias=True,
-            block_size=16,
+            block_size=32,
         )
         self.v_proj = QLinearLPBQ(
             config.hidden_size,
             config.num_key_value_heads * self.head_dim,
             bias=True,
-            block_size=16,
+            block_size=32,
         )
         self.o_proj = QLinearLPBQ(
             config.num_attention_heads * self.head_dim,
             config.hidden_size,
             bias=False,
-            block_size=16,
+            block_size=32,
         )
         self.sliding_window = config.sliding_window if config.layer_types[layer_idx] == "sliding_attention" else None
 
@@ -164,6 +164,13 @@ class Qwen2Attention(nn.Module):
         self.k_rope_mul_0_output_qdq = ActivationQDQ(bits=act_bits)
         self.k_rope_mul_1_output_qdq = ActivationQDQ(bits=act_bits)
         self.k_rope_add_0_output_qdq = ActivationQDQ(bits=act_bits)
+
+        self.k_cast_to_int8_qdq = ActivationQDQ(
+            bits=kv_act_bits, qscheme=torch.per_tensor_symmetric
+        )
+        self.v_cast_to_int8_qdq = ActivationQDQ(
+            bits=kv_act_bits, qscheme=torch.per_tensor_symmetric
+        )
 
         self.v_proj_output_qdq = ActivationQDQ(bits=act_bits)
         self.qk_matmul_output_qdq = ActivationQDQ(bits=act_bits)
@@ -210,7 +217,9 @@ class Qwen2Attention(nn.Module):
             + self.k_rope_mul_1_output_qdq(rotate_half(key_states) * sin)
         )
 
-        value_states = self.v_proj_output_qdq(value_states)
+        # value_states = self.v_proj_output_qdq(value_states)
+        key_states = self.k_cast_to_int8_qdq(key_states)
+        value_states = self.v_cast_to_int8_qdq(self.v_proj_output_qdq(value_states))
 
         if past_key_values is not None:
             # sin and cos are specific to RoPE models; cache_position needed for the static cache

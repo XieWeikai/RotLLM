@@ -17,16 +17,16 @@ export HF_ENDPOINT=https://hf-mirror.com
 CUDA_VISIBLE_DEVICES=1,2,3,4 torchrun --nnodes=1 --nproc_per_node=4 --master_port=45678 -m runner.runner \
 --stage "train" \
 --input_model $1  \
---output_rotation_path "/data/zjh/tensor_final/Qwen2_4_8_32_32_01_001_1024_512_i_per_channel_weight_a16down_100.bin" \
---output_dir "/data/zjh/tensor_final/outputs" \
---logging_dir "/data/zjh/tensor_final/logs" \
+--output_rotation_path "/data/zjh/tensor_final_1/SmolLM2_4_8_32_32_01_001_512_256_i_per_channel_weight_a16down_100.bin" \
+--output_dir "/data/zjh/tensor_final_1/outputs" \
+--logging_dir "/data/zjh/tensor_final_1/logs" \
 --save_strategy "no" \
 --model_max_length 2048 \
 --bf16 True \
 --log_on_each_node False \
 --per_device_train_batch_size 2 \
 --gradient_accumulation_steps 2 \
---max_steps 1024 \
+--max_steps 512 \
 --logging_steps 10 \
 --learning_rate 0.1 \
 --weight_decay 0. \
@@ -38,7 +38,7 @@ CUDA_VISIBLE_DEVICES=1,2,3,4 torchrun --nnodes=1 --nproc_per_node=4 --master_por
 --mode "static" \
 --granularity "per_tensor" \
 --need_sample_for_static_init 16 \
---warmup_step 512 \
+--warmup_step 256 \
 --w_bits $2 \
 --a_bits $3 \
 --q_bits $4 \

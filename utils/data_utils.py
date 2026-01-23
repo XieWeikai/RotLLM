@@ -104,3 +104,21 @@ def get_wikitext2(dataset, nsamples=128, seed=0, seqlen=2048, model="", tokenize
             tar[:, :-1] = -100
             trainloader.append((inp, tar))
         return trainloader
+    
+
+
+def get_c4(dataset, nsamples=128, seed=0, seqlen=2048, model="", tokenizer=None, eval_mode=False):
+    if tokenizer is None:
+        tokenizer = transformers.AutoTokenizer.from_pretrained(model, use_fast=False)
+    # dataset 是 streaming dataset
+    texts = []
+    total_tokens = 0
+
+    for i, item in enumerate(dataset):
+        texts.append(item["text"])
+
+    joined = "\n\n".join(texts)
+
+    testenc = tokenizer(joined, return_tensors="pt")
+    print(testenc.input_ids.shape)
+    return testenc

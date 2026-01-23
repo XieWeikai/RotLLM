@@ -39,6 +39,9 @@ def evaluator(model, testenc, seqlen, args):
         def __init__(self, module):
             super().__init__()
             self.module = module
+            # ✅ 关键：传 Qwen2 需要的属性
+            if hasattr(module, "attention_type"):
+                self.attention_type = module.attention_type
 
         def forward(self, inp, **kwargs):
             inps[cache["i"]] = inp

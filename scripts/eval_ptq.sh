@@ -14,7 +14,7 @@
 # For example: bash scripts/eval_ptq.sh /data/share/SmolLM2-1.7B-Instruct 8 8 32 32
 # For example: bash scripts/eval_ptq.sh /data/share/Qwen3-1.7B 8 8 32 32
 export HF_ENDPOINT=https://hf-mirror.com
-CUDA_VISIBLE_DEVICES=0 torchrun --nnodes=1 --nproc_per_node=1 --master_port=60001 -m runner.runner \
+CUDA_VISIBLE_DEVICES=0 torchrun --nnodes=1 --nproc_per_node=1 --master_port=60000 -m runner.runner \
 --stage "eval" \
 --input_model $1 \
 --do_train False \

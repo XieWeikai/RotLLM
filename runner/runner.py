@@ -194,6 +194,16 @@ def runner() -> None:
         log.info("💡Start to eval...")
         
         if not ptq_args.task:
+            # dataset = load_dataset(
+            #     "allenai/c4",
+            #     "en",
+            #     split="validation",
+            #     streaming=True,
+            #     trust_remote_code=True
+            # )
+
+            # dataset = dataset.take(800)
+            # from utils.data_utils import get_c4
             testloader = get_wikitext2(
                 dataset,
                 seed=ptq_args.seed,

@@ -110,7 +110,7 @@ class LlamaMLP(nn.Module):
         self.config = config
         self.hidden_size = config.hidden_size
         self.intermediate_size = config.intermediate_size
-          
+
         self.gate_proj = Qlinear_FakeQuantizer(self.hidden_size, self.intermediate_size, bias=config.mlp_bias)
         self.up_proj = Qlinear_FakeQuantizer(self.hidden_size, self.intermediate_size, bias=config.mlp_bias)
         self.down_proj = Qlinear_FakeQuantizer(self.intermediate_size, self.hidden_size, bias=config.mlp_bias)
@@ -129,7 +129,6 @@ class LlamaMLP(nn.Module):
         )
 
         self.R4 = None
-
 
     def forward(self, x):
         x = self.up_proj_input_qdq(x)
@@ -229,7 +228,6 @@ class LlamaAttention(nn.Module):
         key_states = self.k_proj_output_qdq(self.k_proj(hidden_states)).view(hidden_shape).transpose(1, 2)
         value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
 
-
         cos, sin = position_embeddings
         cos = cos.unsqueeze(1)
         sin = sin.unsqueeze(1)
@@ -242,10 +240,8 @@ class LlamaAttention(nn.Module):
             + self.k_rope_mul_1_output_qdq(rotate_half(key_states) * sin)
         )
 
-        # value_states = self.v_proj_output_qdq(value_states)
         key_states = self.k_cast_to_int8_qdq(key_states)
         value_states = self.v_cast_to_int8_qdq(self.v_proj_output_qdq(value_states))
-
 
         if past_key_values is not None:
             # sin and cos are specific to RoPE models; cache_position needed for the static cache
@@ -283,7 +279,6 @@ class LlamaAttention(nn.Module):
                 query_states.dtype
             )
         )
-
         attn_output = self.o_proj_input_qdq(
             torch.matmul(attn_weights, value_states)
         )
@@ -334,8 +329,6 @@ class LlamaDecoderLayer(GradientCheckpointingLayer):
         hidden_states = self.input_layernorm_input_qdq(hidden_states)
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
-
-
         # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
@@ -353,7 +346,7 @@ class LlamaDecoderLayer(GradientCheckpointingLayer):
 
         # Fully Connected
         residual = hidden_states
-        hidden_states = self.post_attention_layernorm(hidden_states) 
+        hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = self.mlp(hidden_states)
         
         if not self.is_8bit:

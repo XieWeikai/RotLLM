@@ -120,12 +120,15 @@ class LlamaMLP(nn.Module):
             self.hidden_size, self.intermediate_size, bias=config.mlp_bias, block_size=32
         )
 
-        if self.layer_idx >= 21 and self.layer_idx <= 27:
-            self.down_proj = QLinearW8_PerChannelSym(self.intermediate_size, self.hidden_size, bias=config.mlp_bias)
-        else:
-            self.down_proj = QLinearLPBQ(
-                self.intermediate_size, self.hidden_size, bias=config.mlp_bias, block_size=32
-            )
+        # if self.layer_idx >= 21 and self.layer_idx <= 27:
+        #     self.down_proj = QLinearW8_PerChannelSym(self.intermediate_size, self.hidden_size, bias=config.mlp_bias)
+        # else:
+        #     self.down_proj = QLinearLPBQ(
+        #         self.intermediate_size, self.hidden_size, bias=config.mlp_bias, block_size=32
+        #     )
+        self.down_proj = QLinearLPBQ(
+            self.intermediate_size, self.hidden_size, bias=config.mlp_bias, block_size=32
+        )
 
         # QDQ
         self.up_proj_input_qdq = ActivationQDQ(bits=act_bits)

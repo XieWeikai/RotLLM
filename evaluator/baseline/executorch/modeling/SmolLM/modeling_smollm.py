@@ -112,14 +112,24 @@ class LlamaMLP(nn.Module):
         self.hidden_size = config.hidden_size
         self.intermediate_size = config.intermediate_size
           
-        self.gate_proj = QLinearW8_PerChannelSym(
-            self.hidden_size, self.intermediate_size, bias=config.mlp_bias
+        # self.gate_proj = QLinearW8_PerChannelSym(
+        #     self.hidden_size, self.intermediate_size, bias=config.mlp_bias
+        # )
+        # self.up_proj = QLinearW8_PerChannelSym(
+        #     self.hidden_size, self.intermediate_size, bias=config.mlp_bias
+        # )
+        # self.down_proj = QLinearW8_PerChannelSym(
+        #     self.intermediate_size, self.hidden_size, bias=config.mlp_bias
+        # )
+
+        self.gate_proj = QLinearLPBQ(
+            self.hidden_size, self.intermediate_size, bias=config.mlp_bias, block_size=32
         )
-        self.up_proj = QLinearW8_PerChannelSym(
-            self.hidden_size, self.intermediate_size, bias=config.mlp_bias
+        self.up_proj = QLinearLPBQ(
+            self.hidden_size, self.intermediate_size, bias=config.mlp_bias, block_size=32
         )
-        self.down_proj = QLinearW8_PerChannelSym(
-            self.intermediate_size, self.hidden_size, bias=config.mlp_bias
+        self.down_proj = QLinearLPBQ(
+            self.intermediate_size, self.hidden_size, bias=config.mlp_bias, block_size=32
         )
 
         # QDQ
@@ -184,25 +194,50 @@ class LlamaAttention(nn.Module):
         self.attention_dropout = config.attention_dropout
         self.is_causal = True
 
-        self.q_proj = QLinearW8_PerChannelSym(
+        # self.q_proj = QLinearW8_PerChannelSym(
+        #     config.hidden_size,
+        #     config.num_attention_heads * self.head_dim,
+        #     bias=config.attention_bias,
+        # )
+        # self.k_proj = QLinearW8_PerChannelSym(
+        #     config.hidden_size,
+        #     config.num_key_value_heads * self.head_dim,
+        #     bias=config.attention_bias,
+        # )
+        # self.v_proj = QLinearW8_PerChannelSym(
+        #     config.hidden_size,
+        #     config.num_key_value_heads * self.head_dim,
+        #     bias=config.attention_bias,
+        # )
+        # self.o_proj = QLinearW8_PerChannelSym(
+        #     config.num_attention_heads * self.head_dim,
+        #     config.hidden_size,
+        #     bias=config.attention_bias,
+        # )
+
+        self.q_proj = QLinearLPBQ(
             config.hidden_size,
             config.num_attention_heads * self.head_dim,
             bias=config.attention_bias,
+            block_size=32,
         )
-        self.k_proj = QLinearW8_PerChannelSym(
+        self.k_proj = QLinearLPBQ(
             config.hidden_size,
             config.num_key_value_heads * self.head_dim,
             bias=config.attention_bias,
+            block_size=32,
         )
-        self.v_proj = QLinearW8_PerChannelSym(
+        self.v_proj = QLinearLPBQ(
             config.hidden_size,
             config.num_key_value_heads * self.head_dim,
             bias=config.attention_bias,
+            block_size=32,
         )
-        self.o_proj = QLinearW8_PerChannelSym(
+        self.o_proj = QLinearLPBQ(
             config.num_attention_heads * self.head_dim,
             config.hidden_size,
             bias=config.attention_bias,
+            block_size=32,
         )
         
         # QDQ
@@ -215,6 +250,13 @@ class LlamaAttention(nn.Module):
         self.k_rope_mul_0_output_qdq = ActivationQDQ(bits=act_bits)
         self.k_rope_mul_1_output_qdq = ActivationQDQ(bits=act_bits)
         self.k_rope_add_0_output_qdq = ActivationQDQ(bits=act_bits)
+
+        self.k_cast_to_int8_qdq = ActivationQDQ(
+            bits=kv_act_bits, qscheme=torch.per_tensor_symmetric
+        )
+        self.v_cast_to_int8_qdq = ActivationQDQ(
+            bits=kv_act_bits, qscheme=torch.per_tensor_symmetric
+        )
 
         self.v_proj_output_qdq = ActivationQDQ(bits=act_bits)
         self.qk_matmul_output_qdq = ActivationQDQ(bits=act_bits)
@@ -257,7 +299,9 @@ class LlamaAttention(nn.Module):
             + self.k_rope_mul_1_output_qdq(rotate_half(key_states) * sin)
         )
 
-        value_states = self.v_proj_output_qdq(value_states)
+        # value_states = self.v_proj_output_qdq(value_states)
+        key_states = self.k_cast_to_int8_qdq(key_states)
+        value_states = self.v_cast_to_int8_qdq(self.v_proj_output_qdq(value_states))
 
         if past_key_values is not None:
             # sin and cos are specific to RoPE models; cache_position needed for the static cache
