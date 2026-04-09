@@ -9,3 +9,5 @@ RotLLM.egg-info/
 *delete*.py
 txt/
 test/
+infer/
+*draw*

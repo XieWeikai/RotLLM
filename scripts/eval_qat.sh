@@ -13,8 +13,9 @@
 # For example: bash scripts/eval_qat.sh /data/share/Qwen2.5-3B-Instruct 8 8 8 8
 # For example: bash scripts/eval_qat.sh /data/share/SmolLM2-1.7B-Instruct 8 8 8 8
 # For example: bash scripts/eval_qat.sh /data/share/Qwen3-1.7B 8 8 8 8
+# For example: bash scripts/eval_qat.sh /data/share/TinyLlama-1.1B-Chat-v1.0 8 8 8 8
 export HF_ENDPOINT=https://hf-mirror.com
-CUDA_VISIBLE_DEVICES=7 torchrun --nnodes=1 --nproc_per_node=1 --master_port=60014 -m runner.runner \
+CUDA_VISIBLE_DEVICES=4 torchrun --nnodes=1 --nproc_per_node=1 --master_port=60008 -m runner.runner \
 --stage "eval" \
 --input_model $1 \
 --do_train False \
@@ -43,6 +44,6 @@ CUDA_VISIBLE_DEVICES=7 torchrun --nnodes=1 --nproc_per_node=1 --master_port=6001
 --k_sym \
 --v_sym \
 --no-oa_sym \
---output_rotation_path "/data/zjh/tensor_final_1/Llama_8_8_32_32_01_001_512_256_i_per_channel_weight_a16down_100.bin" \
+--output_rotation_path "/data/zjh/tensor_re/Qwen3_4_8_32_32_01_001_512_256_i_per_channel_weight_a16down_100_momentum09.bin" \
 --no-task \
-# --convert_model_path "/data/zjh/model_pth/Qwen3-rotated.pth" \
+# --convert_model_path "/data/zjh/model_pth/Qwen3-1.7B-rotated.pth" \

@@ -5,6 +5,7 @@ from torch.ao.quantization import FakeQuantize, MinMaxObserver
 
 from torch.ao.quantization.observer import FixedQParamsObserver
 
+DEFAULT_EPS_4BIT = 0.0001 / 15
 DEFAULT_EPS_8BIT = 0.0001 / 255
 DEFAULT_EPS_16BIT = 0.0001 / 65535
 
@@ -42,6 +43,8 @@ class ActivationQDQ(nn.Module):
             eps = DEFAULT_EPS_8BIT
         elif bits == 16:
             eps = DEFAULT_EPS_16BIT
+        elif bits == 4:
+            eps = DEFAULT_EPS_4BIT
         else:
             raise ValueError(f"Unsupported bit width: {bits}")
 

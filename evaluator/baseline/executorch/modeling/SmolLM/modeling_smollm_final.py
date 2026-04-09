@@ -52,7 +52,7 @@ from ...core.rms_norm import QRMSNorm
 from ...core.qlinear import QLinearW8_PerChannelSym
 from ...core.qdq import ActivationQDQ, FixedActivationQDQ
 
-from ...core.qlinear import QLinearW8_PerChannelSym as Qlinear_FakeQuantizer
+from ...core.qlinear import QLinearW4_PerChannelSym as Qlinear_FakeQuantizer
 
 act_bits = 16
 kv_act_bits = 8

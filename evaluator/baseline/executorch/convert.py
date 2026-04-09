@@ -30,19 +30,19 @@ ActivationQDQ_to_FakeQuantizer = {
 
 MODEL_IMPL = {
     "llama": {
-        "module": ".modeling.Llama.modeling_llama",
+        "module": ".modeling.Llama.modeling_llama_final",
         "class": "LlamaForCausalLM",
     },
     "smollm": {
-        "module": ".modeling.SmolLM.modeling_smollm",
+        "module": ".modeling.SmolLM.modeling_smollm_final",
         "class": "LlamaForCausalLM",
     },
     "qwen2": {
-        "module": ".modeling.Qwen.modeling_qwen2",
+        "module": ".modeling.Qwen.modeling_qwen2_final",
         "class": "Qwen2ForCausalLM",
     },
     "qwen3": {
-        "module": ".modeling.Qwen.modeling_qwen3",
+        "module": ".modeling.Qwen.modeling_qwen3_final",
         "class": "Qwen3ForCausalLM",
     },
 }

@@ -57,8 +57,10 @@ def trainable_static_rtn_fwrd(model, batch, model_args):
         if num_bits_name in data.keys():
             module.config.num_bits = data[num_bits_name]
             
-    #     if "outActQuant" in name or "qQuant" in name or "kQuant" in name or "vQuant" in name:
+    #     if "outActQuant" in name:
     #         module.config.need_sample_for_static_init = 16
+    #         if "down" in name:
+    #             module.config.num_bits = 16
 
     # model.eval()
     # with torch.no_grad(): 
@@ -69,5 +71,7 @@ def trainable_static_rtn_fwrd(model, batch, model_args):
 
     # if model_args.convert_model_path is not None:
     #     convert_model(model, model_args.convert_model_path)
+    # from utils.convert_executorch_model import convert_executorch_model
+    # convert_executorch_model(model, model_args.convert_model_path)
 
         

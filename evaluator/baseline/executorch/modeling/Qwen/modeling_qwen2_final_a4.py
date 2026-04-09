@@ -54,7 +54,7 @@ class Qwen2MLP(nn.Module):
         self.down_proj = Qlinear_FakeQuantizer(self.intermediate_size, self.hidden_size, bias=False)
 
         # QDQ
-        self.up_proj_input_qdq = ActivationQDQ(bits=8)
+        self.up_proj_input_qdq = ActivationQDQ(bits=4)
         self.up_proj_output_qdq = ActivationQDQ(bits=8)
         self.gate_proj_output_qdq = ActivationQDQ(bits=8)
         self.act_output_qdq = ActivationQDQ(bits=act_bits)
@@ -131,7 +131,7 @@ class Qwen2Attention(nn.Module):
 
 
         # QDQ
-        self.q_proj_input_qdq = ActivationQDQ(bits=8)
+        self.q_proj_input_qdq = ActivationQDQ(bits=4)
         self.q_proj_output_qdq = ActivationQDQ(bits=8)
         self.k_proj_output_qdq = ActivationQDQ(bits=8)
         self.q_rope_mul_0_output_qdq = ActivationQDQ(bits=act_bits)
@@ -156,7 +156,7 @@ class Qwen2Attention(nn.Module):
         self.mul_0_output_qdq = ActivationQDQ(bits=act_bits)
         self.minus_0_output_qdq = ActivationQDQ(bits=act_bits)
         self.softmax_output_qdq = ActivationQDQ(bits=act_bits)
-        self.o_proj_input_qdq = ActivationQDQ(bits=8)
+        self.o_proj_input_qdq = ActivationQDQ(bits=4)
 
 
     @deprecate_kwarg("past_key_value", new_name="past_key_values", version="4.58")

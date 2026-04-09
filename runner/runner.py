@@ -111,6 +111,10 @@ def runner() -> None:
     # model = model_orig
     # adaptive_R4, R_trainable_parameters, q_trainable_parameters = [], [], []
 
+    # from infer.prompt_output import infer
+    # infer(model, tokenizer)
+    # assert False, "haha"
+
     check_dict = collect_fakequant_configs(model, "txt/check_config.txt", write_to_file=True)
 
     if ptq_args.stage == "train":
@@ -120,6 +124,9 @@ def runner() -> None:
             log.info("Model init completed for training...")
             log.info("💡Start to train...")
         
+        # for p in q_trainable_parameters:
+        #     p.requires_grad_(False)
+
         # Applicable to RotLLM
         optimizer = SGDG(
             [
@@ -128,6 +135,8 @@ def runner() -> None:
             ],
             lr=training_args.learning_rate
         )
+        # optimizer.param_names = {id(p): name for name, p in model.named_parameters()}
+        # optimizer.local_rank = local_rank
 
 
         MyTrainer = Trainer
@@ -194,17 +203,17 @@ def runner() -> None:
         log.info("💡Start to eval...")
         
         if not ptq_args.task:
-            # dataset = load_dataset(
-            #     "allenai/c4",
-            #     "en",
-            #     split="validation",
-            #     streaming=True,
-            #     trust_remote_code=True
-            # )
+            dataset = load_dataset(
+                "allenai/c4",
+                "en",
+                split="validation",
+                streaming=True,
+                trust_remote_code=True
+            )
 
-            # dataset = dataset.take(800)
-            # from utils.data_utils import get_c4
-            testloader = get_wikitext2(
+            dataset = dataset.take(800)
+            from utils.data_utils import get_c4
+            testloader = get_c4(
                 dataset,
                 seed=ptq_args.seed,
                 seqlen=2048,
