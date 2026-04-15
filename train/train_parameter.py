@@ -156,16 +156,16 @@ class FakeQuantizer(nn.Module):
             #         self.qmin, self.qmax = compute_n_bits_min_max(self.config)
             #         input_q = DynamicUnLearnableQKVFakeQuantizeFunction.apply(input, self.scale, self.zero_point, self.qmin, self.qmax).to(dtype=input_type)
         elif self.config.mode == 'dynamic': # Only Support per-channel and per-group quantizer
-            if isinstance(self.config, (QueryQuantizeConfig, KeyQuantizeConfig, ValueQuantizeConfig)):
-                input_type = input.dtype 
-                self.qmin, self.qmax = compute_n_bits_min_max(self.config)
-                self.scale, self.zero_point = quant_per_block(input, self.config)
-                input_q = DynamicUnLearnableQKVFakeQuantizeFunction.apply(input, self.scale, self.zero_point, self.qmin, self.qmax).to(dtype=input_type)
-            else:
-                input_type = input.dtype
-                self.qmin, self.qmax = compute_n_bits_min_max(self.config)
-                self.scale, self.zero_point = compute_qparams_dynamic(input.data, self.config, self.qmin, self.qmax)    # 这里使用 .data 避免进入计算图，避免导致 mse 分支的张量占用大量显存不释放
-                input_q = DynamicUnLearnableFakeQuantizeFunction.apply(input, self.scale, self.zero_point, self.qmin, self.qmax).to(dtype=input_type)
+            # if isinstance(self.config, (QueryQuantizeConfig, KeyQuantizeConfig, ValueQuantizeConfig)):
+            #     input_type = input.dtype 
+            #     self.qmin, self.qmax = compute_n_bits_min_max(self.config)
+            #     self.scale, self.zero_point = quant_per_block(input, self.config)
+            #     input_q = DynamicUnLearnableQKVFakeQuantizeFunction.apply(input, self.scale, self.zero_point, self.qmin, self.qmax).to(dtype=input_type)
+            # else:
+            input_type = input.dtype
+            self.qmin, self.qmax = compute_n_bits_min_max(self.config)
+            self.scale, self.zero_point = compute_qparams_dynamic(input.data, self.config, self.qmin, self.qmax)    # 这里使用 .data 避免进入计算图，避免导致 mse 分支的张量占用大量显存不释放
+            input_q = DynamicUnLearnableFakeQuantizeFunction.apply(input, self.scale, self.zero_point, self.qmin, self.qmax).to(dtype=input_type)
             
         return input_q
 

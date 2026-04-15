@@ -159,7 +159,10 @@ def set_special_quantization_configuration_dynamic(model, ptq_args):
     for name in subset:
         # weight:
         if "weightQuant" in name:
-            subset[name].num_bits = 32
+            if ptq_args.stage == "eval":
+                subset[name].num_bits = 32
+            if "lm_head" in name:
+                subset[name].num_bits = 32
 
         # activation:
         if ptq_args.a_bits < 32 and "actQuant" in name:
@@ -171,13 +174,13 @@ def set_special_quantization_configuration_dynamic(model, ptq_args):
                 if ptq_args.a_groupsize > 0:
                     down_proj_groupsize = model_down_proj_groupsize(model, ptq_args.a_groupsize)
                     subset[name].groupsize = down_proj_groupsize
-            if "o_proj" in name:
-                subset[name].groupsize = head_dim
+            # if "o_proj" in name:
+            #     subset[name].groupsize = head_dim
 
-        # value:
-        if ptq_args.v_bits < 32 and "vQuant" in name:
-            if "v_proj" in name:
-                subset[name].groupsize = head_dim
+        # # value:
+        # if ptq_args.v_bits < 32 and "vQuant" in name:
+        #     if "v_proj" in name:
+        #         subset[name].groupsize = head_dim
 
         # out_activation:
         if ptq_args.oa_bits < 32 and "outActQuant" in name:
@@ -411,7 +414,8 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
     if ptq_args.stage == "train":
         # 将 q_proj、k_proj、v_proj 前的激活量化器中的 scale、zero_point 共享同一个参数
         # 将 gate_proj、up_proj 前的激活量化器中的 scale、zero_point 共享同一个参数
-        share_linear_scale_and_zero_point(model, local_rank)
+        if ptq_args.mode == "static":
+            share_linear_scale_and_zero_point(model, local_rank)
 
         # Integration of trainable parameters
         R_trainable_parameters = [R1.weight] + [r.weight for r in R2]
@@ -426,13 +430,13 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
         q_trainable_parameters = new_q_trainable_parameters
 
 
-        R_dict = {}
-        for name, module in model.named_modules():
-            if isinstance(module, FakeQuantizer):
-                if hasattr(module, "scale"):
-                    R_dict[f"{name}.scale"] = module.scale
-                if hasattr(module, "zero_point"):
-                    R_dict[f"{name}.zero_point"] = module.zero_point
+        # R_dict = {}
+        # for name, module in model.named_modules():
+        #     if isinstance(module, FakeQuantizer):
+        #         if hasattr(module, "scale"):
+        #             R_dict[f"{name}.scale"] = module.scale
+        #         if hasattr(module, "zero_point"):
+        #             R_dict[f"{name}.zero_point"] = module.zero_point
         
         # with open("./txt/scale_init.txt", "w") as f:
         #     for k, v in R_dict.items():
@@ -452,8 +456,8 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
             else:
                 static_rtn_fwrd(model)
         
-        if True:
-            model = rotllm_transform_to_executorch(model, batch, model_args, R4, local_rank)
+            if ptq_args.executorch:
+                model = rotllm_transform_to_executorch(model, batch, model_args, R4, local_rank)
 
         return model, None, None, None
     

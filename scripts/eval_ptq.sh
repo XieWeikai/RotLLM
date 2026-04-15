@@ -46,6 +46,7 @@ CUDA_VISIBLE_DEVICES=7 torchrun --nnodes=1 --nproc_per_node=1 --master_port=6001
 --k_sym \
 --v_sym \
 --no-oa_sym \
+--executorch \
 --no-task \
 --no-adaptive_down_input_activation_16bits \
 --no-adaptive_online_rotation_R4 \

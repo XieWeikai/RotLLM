@@ -127,6 +127,12 @@ def parser_gen():
         help="""Decide whether to use the SageAttention quantization method. 
         Note: sageattn=true and k_bits, v_bits < 32 cannot both be true at the same time, otherwise it will cause duplicate quantization.""",
     )
+    parser.add_argument(
+        "--executorch",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="""Decide whether to use the executorch model when eval.""",
+    )
 
     # Used for static quantization
     parser.add_argument(

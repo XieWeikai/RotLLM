@@ -44,6 +44,7 @@ CUDA_VISIBLE_DEVICES=4 torchrun --nnodes=1 --nproc_per_node=1 --master_port=6000
 --k_sym \
 --v_sym \
 --no-oa_sym \
---output_rotation_path "/data/zjh/tensor_re/Qwen3_4_8_32_32_01_001_512_256_i_per_channel_weight_a16down_100_momentum09.bin" \
+--output_rotation_path "/data/zjh/tensor_final_1/Llama_4_8_32_32_01_001_512_256_i_per_channel_weight_a16down_100.bin" \
+--executorch \
 --no-task \
-# --convert_model_path "/data/zjh/model_pth/Qwen3-1.7B-rotated.pth" \
+# --convert_model_path "/data/zjh/model_pth/Qwen2-3B-it-rotated.pth" \

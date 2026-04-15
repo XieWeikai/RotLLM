@@ -81,6 +81,55 @@ def find_params_per_groupwise(input: torch.Tensor, config, min_val, max_val)->Tu
     zero_point = zero_point.expand(-1, -1, -1, config.groupsize).reshape(init_shape) if zero_point is not None else None
     return scale, zero_point
 
+
+def find_params_per_tensor(
+    input: torch.Tensor, config, min_val, max_val
+) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+    """
+    Dynamic compute scale and zero point for per-tensor quantization.
+    """
+    xmax = input.max() * config.clip_ratio
+    xmin = input.min() * config.clip_ratio
+
+    if config.is_symmetric:
+        xmax = torch.maximum(torch.abs(xmax), torch.abs(xmin)).clamp(min=1e-5)
+        scale = xmax / max_val
+        zero_point = None
+    else:
+        scale = (xmax - xmin).clamp(min=1e-5) / (max_val - min_val)
+        zero_point = torch.round(min_val - xmin / scale)
+
+    if isinstance(config, WeightQuantizeConfig) and config.mse:
+        best_error = torch.full([1], float("inf"), device=input.device, dtype=input.dtype)
+        best_scale = scale.clone()
+        best_zero = zero_point.clone() if zero_point is not None else None
+
+        for i in range(int(config.grid * config.maxshrink)):
+            p = 1 - i / config.grid
+            xmin1 = xmin * p
+            xmax1 = xmax * p
+
+            if config.is_symmetric:
+                scale1 = xmax1 / max_val
+                zero_point1 = None
+            else:
+                scale1 = (xmax1 - xmin1) / (max_val - min_val)
+                zero_point1 = torch.round(min_val - xmin1 / scale1)
+
+            q, _, _ = quant_dequant(input, scale1, zero_point1, min_val, max_val)
+            err = ((q - input).abs() ** config.norm).sum()
+
+            if err < best_error:
+                best_error = err
+                best_scale = scale1
+                best_zero = zero_point1
+
+        scale = best_scale
+        zero_point = best_zero
+
+    return scale, zero_point
+
+
 def compute_qparams_dynamic(input: torch.Tensor, config, min_val, max_val)->Tuple[torch.Tensor, Optional[torch.Tensor]]:
     """
     Dynamic compute scale and zero point for quantization.
@@ -97,6 +146,10 @@ def compute_qparams_dynamic(input: torch.Tensor, config, min_val, max_val)->Tupl
         scale, zero_point = find_params_per_groupwise(input, config, min_val, max_val)
         return scale, zero_point 
 
+    if config.granularity == 'per_tensor':
+        scale, zero_point = find_params_per_tensor(input, config, min_val, max_val)
+        return scale, zero_point 
+    
     reshaped_input = input.reshape((-1, input.shape[-1]))
     xmax = torch.amax(reshaped_input, dim=1, keepdim=True) * config.clip_ratio
     xmin = torch.amin(reshaped_input, dim=1, keepdim=True) * config.clip_ratio

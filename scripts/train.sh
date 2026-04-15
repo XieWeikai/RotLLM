@@ -18,7 +18,7 @@ export HF_ENDPOINT=https://hf-mirror.com
 CUDA_VISIBLE_DEVICES=1,2,3,4 torchrun --nnodes=1 --nproc_per_node=4 --master_port=45678 -m runner.runner \
 --stage "train" \
 --input_model $1  \
---output_rotation_path "/data/zjh/tensor_re/Llama_4_8_32_32_01_001_512_256_i_per_channel_weight_a16down_0.bin" \
+--output_rotation_path "/data/zjh/tensor_re/Llama_4_8_32_32_01_001_512_256_i_per_channel_weight_a16down_100.bin" \
 --output_dir "/data/zjh/tensor_re/outputs" \
 --logging_dir "/data/zjh/tensor_re/logs" \
 --save_strategy "no" \
@@ -56,7 +56,7 @@ CUDA_VISIBLE_DEVICES=1,2,3,4 torchrun --nnodes=1 --nproc_per_node=4 --master_por
 --adaptive_down_input_activation_16bits \
 --no-adaptive_online_rotation_R4 \
 --no-adaptive_mixed_precision \
---adapt_R4_percentage 0.0 \
+--adapt_R4_percentage 1.0 \
 --adapt_activation_percentage 0.06 \
 --adapt_need_sample 4 \
 --max_grad_norm 1.0 \

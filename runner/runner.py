@@ -115,6 +115,10 @@ def runner() -> None:
     # infer(model, tokenizer)
     # assert False, "haha"
 
+    # from infer.chat import infer
+    # infer(model, tokenizer, "Could you please introduce the large language model?")
+    # assert False, "haha"
+
     check_dict = collect_fakequant_configs(model, "txt/check_config.txt", write_to_file=True)
 
     if ptq_args.stage == "train":
