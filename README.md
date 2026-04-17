@@ -123,46 +123,43 @@ For details, please refer to [SpinQuant](https://github.com/facebookresearch/Spi
 | Argument | Description | Default |
 |----------|-------------|----------|
 | --seed | Random Seed for HuggingFace and PyTorch | 0 |
-| --stage | 当前要进行训练还是评估（train or eval） | train |
+| --stage | train or eval | train |
 | --input_model | Path to the huggingface FP model | None |
-| --output_rotation_path | 保存优化后的旋转矩阵和静态量化参数（若存在） | None |
+| --output_rotation_path | Save the optimized rotation matrices and static quantization parameters (if exists). | None |
 | --model_max_length | Maximum sequence length. Sequences will be right padded (and possibly truncated). | 2048 |
-| --x_bits | 量化位宽（x：w，a，oa，q，k，v） | 32 |
-| --x_sym | 是否使用对称量化（x：w，a，oa，q，k，v） | True |
-| --granularity | per-tensor or pre-channel quantization | pre-tensor |
-| --trainable_R | 是否使用优化后的旋转矩阵和静态量化参数（若存在） | False |
-| --task | |  |
+| --x_bits | quantization bit-width (x：w，a，oa，q，k，v) | 32 |
+| --x_sym | Whether to use symmetric quantization (x：w，a，oa，q，k，v) | True |
+| --granularity | per_tensor or pre_channel quantization | pre_tensor |
+| --trainable_R | Whether to use the optimized rotation matrices. | True |
+| --trainable_scale | Whether to use the optimized static quantization parameters (if exists). | True |
+| --task | Decide whether to test zero_shot tasks. If true, test all task metrics; if false, only test PPL. | True |
 | --mode | Static quantization or Dynamic quatization | static |
 
+Most importantly, we use --mode to select between the SpinQuant pipeline (--mode dynamic) and the Quant.npu pipeline (--mode static).
 
-
-
-最重要的，我们通过 --mode 决定使用 SpinQuant pipeline （--mode dynamic）还是 Quant.npu pipeline（--mode static）
 
 ### SpinQuant pipeline
-这里我们汇总了 SpinQuant pipeline 常用的参数
+Here we summarize the commonly used parameters in the SpinQuant pipeline.
 
 | Argument | Description | Default |
 |----------|-------------|----------|
-
-| --x_groupsize | x：k，v | static |
-| --w_mse | Static quantization or Dynamic quatization | static |
-| --w_rtn | Static quantization or Dynamic quatization | static |
-| mode | Static quantization or Dynamic quatization | static |
+| --x_groupsize | group size for group-wise quantization (x：w，a，oa，q，k，v) | static |
+| --w_mse | We find the best clip ratio during the weight quantization | False |
+| --w_rtn | Quantize the weights using RtN. If the w_bits < 32 and this flag is not set, we use GPTQ. | False |
 
 ### Quant.npu pipeline
+Here we summarize the commonly used parameters in the Quant.npu pipeline.
 
 | Argument | Description | Default |
 |----------|-------------|----------|
-
-| --need_sample_for_static_init | x：k，v | 16 |
-| --warmup_step | x：k，v | 16 |
-| --x_init_type | x：k，v | 16 |
-| --adaptive_down_input_activation_16bits | x：k，v | 16 |
-| --adaptive_online_rotation_R4 | x：k，v | 16 |
-| --adaptive_mixed_precision | x：k，v | 16 |
-| --adapt_R4_percentage | x：k，v | 16 |
-| --adapt_activation_percentage | x：k，v | 16 |
-| --adapt_need_sample | x：k，v | 16 |
-| --adapt_activation_percentage | x：k，v | 16 |
+| --need_sample_for_static_init | The number of samples required for static quantization to initialize activations and weights. | 0 |
+| --warmup_step | The number of steps used to adjust the activated quantization parameters during the initial training phase. | 0 |
+| --x_init_type | Mean or min–max initialization method for quantization parameters. (x：w，a，oa，q，k，v) | mean |
+| --adaptive_down_input_activation_16bits | Enable adaptive mixed-precision strategy (16bit or 8bit activation of down_proj) | False |
+| --adaptive_online_rotation_R4 | Enable adaptive selection of R4 | False |
+| --adaptive_mixed_precision | Enable adaptive mixed-precision strategy (4bit or 8bit) | False |
+| --adapt_R4_percentage | The percentage of adding online rotation matrix R4 or mixed-precision (16bit or 8bit activation of down_proj). | 1.0 |
+| --adapt_activation_percentage | The percentage of all activated positions that increased from 4-bit quantization to 8-bit quantization. | 1.0 |
+| --adapt_need_sample | Number of samples used for analysis in adaptive mixed-precision quantization. | 0 |
+| --executorch | Decide whether to use the executorch model when eval. | True |
 
