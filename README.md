@@ -96,22 +96,27 @@ R4 = [NoLearnRotateModule(get_orthogonal_matrix(hidden_dim, mode="identity", dev
 
 
 ## Usage
-我们的代码提供两种框架的切换：1.SpinQuant（仅优化旋转矩阵） 2.Quant.npu（联合优化旋转矩阵及量化参数）
+We provide two interchangeable frameworks in this codebase:
+1. SpinQuant (rotation-only optimization)
+2. Quant.npu (joint optimization of rotation matrices and quantization parameters)
+
 ```python
 git clone https://github.com/XieWeikai/RotLLM.git
 cd RotLLM
 git checkout dev-zjh
 
-# 如果我们想用 SpinQuant，请参考https://github.com/XieWeikai/RotLLM/tree/dev-zjh/scripts/spinquant：
+# Option-1
+# For SpinQuant, please refer to [scripts/spinquant](https://github.com/XieWeikai/RotLLM/tree/dev-zjh/scripts/spinquant)
 bash scripts/spinquant/train.sh /data/share/Llama-3.2-3B 8 8 8
 bash scripts/spinquant/eval.sh /data/share/Llama-3.2-3B 8 8 8
 
-
-# 如果我们想用 Quant.npu，请参考https://github.com/XieWeikai/RotLLM/tree/dev-zjh/scripts
+# Option-2
+# For Quant.npu, please refer to [sripts](https://github.com/XieWeikai/RotLLM/tree/dev-zjh/scripts)
 bash scripts/train.sh /data/share/Llama-3.2-3B-Instruct 8 8 32 32
-bash scripts/eval_qat.sh /data/share/Llama-3.2-3B-Instruct 8 8 32 32（如果想测试未经联合优化的量化模型，请使用 bash scripts/eval_ptq.sh /data/share/Llama-3.2-3B-Instruct 8 8 32 32）
+bash scripts/eval_qat.sh /data/share/Llama-3.2-3B-Instruct 8 8 32 32（To evaluate a quantized model without optimization, use: bash scripts/eval_ptq.sh /data/share/Llama-3.2-3B-Instruct 8 8 32 32）
 ```
-note：如果你想使用 GPTQ 量化，请使用 bash scripts/spinquant/train.sh /data/share/Llama-3.2-3B 32 8 8 对旋转矩阵进行优化，见[SpinQuant](https://github.com/facebookresearch/SpinQuant/blob/main/README.md)
+Note：If you want to use GPTQ quantization, please run SpinQuant training with: bash scripts/spinquant/train.sh /data/share/Llama-3.2-3B 32 8 8
+For details, please refer to [SpinQuant](https://github.com/facebookresearch/SpinQuant/blob/main/README.md)
 
 
-
+## Command-Line Arguments
