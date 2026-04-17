@@ -86,3 +86,15 @@ def apply_R4_change_model(model, R4_list, local_rank=None):
 ```
 Finally, place the implemented file under the [modeling/](https://github.com/XieWeikai/RotLLM/tree/dev-zjh/modeling), named according to the target model architecture.
 
+
+
+## Rotation Matrix Configuration
+We provide flexible options for constructing rotation matrices in [prepare_model.py](https://github.com/XieWeikai/RotLLM/blob/dev-zjh/runner/prepare_model.py). Specifically, users can choose between "identity" (identity matrix), "random" (random orthogonal matrix), and "hadamard" (random Hadamard matrix) modes to control the type of rotation applied in the model.
+
+```python
+    R1 = LearnRotateModule(get_orthogonal_matrix(dim, mode="hadamard", device=device))
+    R2 = [LearnRotateModule(get_orthogonal_matrix(head_dim, mode="hadamard", device=device)) for _ in range(num_layers)]
+    R3 = [NoLearnRotateModule(get_orthogonal_matrix(head_dim, mode="identity", device=device)) for _ in range(num_layers)]
+    R4 = [NoLearnRotateModule(get_orthogonal_matrix(hidden_dim, mode="identity", device=device)) for _ in range(num_layers)]  
+
+```
