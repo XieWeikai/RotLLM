@@ -120,3 +120,49 @@ For details, please refer to [SpinQuant](https://github.com/facebookresearch/Spi
 
 
 ## Command-Line Arguments
+| Argument | Description | Default |
+|----------|-------------|----------|
+| --seed | Random Seed for HuggingFace and PyTorch | 0 |
+| --stage | 当前要进行训练还是评估（train or eval） | train |
+| --input_model | Path to the huggingface FP model | None |
+| --output_rotation_path | 保存优化后的旋转矩阵和静态量化参数（若存在） | None |
+| --model_max_length | Maximum sequence length. Sequences will be right padded (and possibly truncated). | 2048 |
+| --x_bits | 量化位宽（x：w，a，oa，q，k，v） | 32 |
+| --x_sym | 是否使用对称量化（x：w，a，oa，q，k，v） | True |
+| --granularity | per-tensor or pre-channel quantization | pre-tensor |
+| --trainable_R | 是否使用优化后的旋转矩阵和静态量化参数（若存在） | False |
+| --task | |  |
+| --mode | Static quantization or Dynamic quatization | static |
+
+
+
+
+最重要的，我们通过 --mode 决定使用 SpinQuant pipeline （--mode dynamic）还是 Quant.npu pipeline（--mode static）
+
+### SpinQuant pipeline
+这里我们汇总了 SpinQuant pipeline 常用的参数
+
+| Argument | Description | Default |
+|----------|-------------|----------|
+
+| --x_groupsize | x：k，v | static |
+| --w_mse | Static quantization or Dynamic quatization | static |
+| --w_rtn | Static quantization or Dynamic quatization | static |
+| mode | Static quantization or Dynamic quatization | static |
+
+### Quant.npu pipeline
+
+| Argument | Description | Default |
+|----------|-------------|----------|
+
+| --need_sample_for_static_init | x：k，v | 16 |
+| --warmup_step | x：k，v | 16 |
+| --x_init_type | x：k，v | 16 |
+| --adaptive_down_input_activation_16bits | x：k，v | 16 |
+| --adaptive_online_rotation_R4 | x：k，v | 16 |
+| --adaptive_mixed_precision | x：k，v | 16 |
+| --adapt_R4_percentage | x：k，v | 16 |
+| --adapt_activation_percentage | x：k，v | 16 |
+| --adapt_need_sample | x：k，v | 16 |
+| --adapt_activation_percentage | x：k，v | 16 |
+
