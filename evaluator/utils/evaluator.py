@@ -2,22 +2,24 @@ import torch
 from tqdm import tqdm
 
 
+from utils.utils import get_text_tower, set_config_attribute, restore_config_attribute
+
 @torch.no_grad()
 def evaluator(model, testenc, seqlen, args):
     model.eval()
     dev = model.device
 
-    layers = model.model.layers
+    _, text_model = get_text_tower(model)
+    layers = text_model.layers
     for i in range(len(layers)):
         layer = layers[i].cpu()
         del layer
 
     torch.cuda.empty_cache()
 
-    use_cache = model.config.use_cache
-    model.config.use_cache = False
+    use_cache = set_config_attribute(model, "use_cache", False)
     
-    model.model.embed_tokens = model.model.embed_tokens.to(dev)
+    model.get_input_embeddings().to(dev)
     layers[0] = layers[0].to(dev)
 
     # Convert the whole text of evaluation dataset into batches of sequences.
@@ -28,7 +30,11 @@ def evaluator(model, testenc, seqlen, args):
     )  # (nsamples, seqlen)
 
     batch_size = args.bsz
-    input_ids = [input_ids[i : i + batch_size] for i in range(0, nsamples, batch_size)]
+    input_ids = [
+        input_ids[i : i + batch_size] 
+        for i in range(0, nsamples, batch_size) 
+        if (i + batch_size) <= nsamples  
+    ]
     nbatches = len(input_ids)
 
 
@@ -59,7 +65,7 @@ def evaluator(model, testenc, seqlen, args):
             pass
     layers[0] = layers[0].module
     layers[0] = layers[0].cpu()
-    model.model.embed_tokens = model.model.embed_tokens.cpu()
+    model.get_input_embeddings().cpu()
     torch.cuda.empty_cache()
     
     outs = [0] * nbatches
@@ -69,18 +75,19 @@ def evaluator(model, testenc, seqlen, args):
         layer = layers[i].to(dev)
 
         for j in range(nbatches):
-            outs[j] = layer(
+            out = layer(
                 inps[j],
                 **kwargs
             )
+            outs[j] = out[0] if isinstance(out, tuple) else out
         layers[i] = layer.cpu()
         del layer
         torch.cuda.empty_cache()
         inps, outs = outs, inps
 
-    if model.model.norm is not None:
-        model.model.norm = model.model.norm.to(dev)
-    model.lm_head = model.lm_head.to(dev)
+    _, text_model = get_text_tower(model)
+    text_model.norm.to(dev)
+    model.get_output_embeddings().to(dev)
 
     del outs
     torch.cuda.empty_cache()
@@ -89,9 +96,9 @@ def evaluator(model, testenc, seqlen, args):
     loss_fct = torch.nn.CrossEntropyLoss(reduction="none")
     for i in tqdm(range(nbatches), desc="(Eval) PPL"):
         hidden_states = inps[i]
-        if model.model.norm is not None:
-            hidden_states = model.model.norm(hidden_states)
-        lm_logits = model.lm_head(hidden_states)
+        if text_model.norm is not None:
+            hidden_states = text_model.norm(hidden_states)
+        lm_logits = model.get_output_embeddings()(hidden_states)
         lm_logits = lm_logits.cpu()
         shift_logits = lm_logits[:, :-1, :]
         shift_labels = input_ids[i][:, 1:].cpu()
@@ -100,5 +107,6 @@ def evaluator(model, testenc, seqlen, args):
         nlls.append(neg_log_likelihood)
     nlls_tensor = torch.cat(nlls)
     ppl = torch.exp(nlls_tensor.mean())
-    model.config.use_cache = use_cache
+    
+    restore_config_attribute(model, "use_cache", use_cache)
     return ppl.item()

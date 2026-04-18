@@ -1,6 +1,7 @@
 from typing import Iterable
 import torch
 from torch import nn
+from .utils import get_text_tower
 
 
 def fuse_ln_linear(
@@ -28,9 +29,15 @@ def fuse_ln_linear(
 
 
 def fuse_layer_norms(model):
-    layers = [layer for layer in model.model.layers]
+   
+    _, text_model = get_text_tower(model)
+    lm_head = model.get_output_embeddings()
 
-    # Fuse the linear operations in Layernorm into the adjacent linear blocks.
+    # 从动态获取的文本模型主体中提取 layers 和 final norm
+    layers = text_model.layers
+    final_norm = text_model.norm
+
+    # 3. 执行融合操作
     for layer in layers:
         # fuse the input layernorms into the linear layers
         fuse_ln_linear(
@@ -50,9 +57,10 @@ def fuse_layer_norms(model):
         W_norm = layer.input_layernorm.weight.data
         layer.input_layernorm.weight.data = torch.ones_like(W_norm)
 
+    # 融合 final norm 到 lm_head
     fuse_ln_linear(
-        model.model.norm,
-        [model.lm_head],
+        final_norm,
+        [lm_head],
     )
-    W_norm = model.model.norm.weight.data
-    model.model.norm.weight.data = torch.ones_like(W_norm)
+    W_norm = final_norm.weight.data
+    final_norm.weight.data = torch.ones_like(W_norm)

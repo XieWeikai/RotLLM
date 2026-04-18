@@ -11,7 +11,7 @@ from utils.fuse_norm_utils import fuse_layer_norms
 from utils.rotation_utils import get_orthogonal_matrix
 from train.train_parameter import LearnRotateModule, NoLearnRotateModule, FakeQuantizer
 from modeling.monkeypatch import add_qkv_rotation_quant
-from utils.utils import get_local_rank, log
+from utils.utils import get_local_rank, log, set_config_attribute
 from utils.adapt_mix_precision import adapt_modify_quantization_precision, collect_fakequant_configs
 from attention.my_sdpa import Quant_scaled_dot_product_attention
 from utils.adapt_online_rotation import adapt_choose_online_rotation
@@ -26,35 +26,32 @@ from evaluator.baseline.executorch.convert import rotllm_transform_to_executorch
 from utils.adapt_down_16bits_input import adapt_choose_down_16bits_input
 
 
-def replace_linear_with_rotation_quant(
+def replace_modules_with_rotation(
     model: nn.Module,
     quant_configs: AllQuantizeConfigs,
     rotation_map: dict = None,
-    prefix: str = ""  # Record parent path
+    is_rotated: bool = True
 ):
     """
-    Replace all nn.Linear in the model with RotationQuantLinear.
-
-    Args:
-        model (nn.Module): original model
-        quant_configs (AllQuantizeConfigs): activation/weight/bias/key/value quantitative config
-        rotation_map (dict): key=module name, value=(R_pre, R_post, rotation_pos)
-        prefix (str): Record the parent path in order to extract the rotation configuration from the rotation_map
-    Returns:
-        nn.Module: The completed model after replacement
+    Directly replace targeted nn.Linear and nn.Embedding layers in the text tower 
+    with RotationQuantLinear and RotationEmbedding respectively.
     """
+    if not rotation_map:
+        return model
 
-    # Traverse the model module, recording the parent module and name
-    for name, module in model.named_children():
-        full_name = f"{prefix}.{name}" if prefix else name
+    for full_name, (R_pre, R_post, rotation_pos) in rotation_map.items():
+        try:
+            module = model.get_submodule(full_name)
+        except AttributeError:
+            print(f"Warning: Module {full_name} not found in model. Skipping.")
+            continue
 
-        # If the submodule is nn.Linear, replace it
-        if isinstance(module, nn.Linear):
+        if not is_rotated:
             R_pre, R_post, rotation_pos = None, None, "none"
-            if rotation_map and full_name in rotation_map:
-                R_pre, R_post, rotation_pos = rotation_map[full_name]
 
-            # Build RotationQuantLinear
+        # Construct the corresponding new rotation-quantization module based on the type of the original module.
+        new_module = None
+        if isinstance(module, nn.Linear):
             new_module = RotationQuantLinear(
                 config=quant_configs,
                 linear=module,
@@ -62,38 +59,29 @@ def replace_linear_with_rotation_quant(
                 R_pre=R_pre,
                 R_post=R_post
             )
+        elif isinstance(module, nn.Embedding):
+            new_module = RotationEmbedding(
+                embedding=module,
+                rotation_pos=rotation_pos,
+                R_pre=R_pre,
+                R_post=R_post
+            )
+        
+        if new_module is None:
+            continue
 
-            # Replace the submodule in the parent module
-            setattr(model, name, new_module)
-
+        # Parse the parent module path and the current submodule name.
+        if '.' in full_name:
+            parent_path, child_name = full_name.rsplit('.', 1)
+            parent_module = model.get_submodule(parent_path)
         else:
-            # If not linear, recursively process submodules
-            replace_linear_with_rotation_quant(module, quant_configs, rotation_map, prefix=full_name)
+            parent_module = model
+            child_name = full_name
+            
+        setattr(parent_module, child_name, new_module)
 
     return model
 
-
-
-def replace_embedding_with_rotation_embedding(model: nn.Module, rotation_map: dict = None, prefix: str = ""):
-    """
-    Replace all nn.Embedding in the model with RotationEmbedding
-    """
-    for name, module in model.named_children():
-        full_name = f"{prefix}.{name}" if prefix else name
-
-        # If the submodule is nn.Embedding, replace it
-        if isinstance(module, nn.Embedding):
-            R_pre, R_post, rotation_pos = None, None, "none"
-            if rotation_map and full_name in rotation_map:
-                R_pre, R_post, rotation_pos = rotation_map[full_name]
-
-            # Replace the submodule in the parent module
-            setattr(model, name, RotationEmbedding(embedding=module, rotation_pos=rotation_pos, R_pre=R_pre, R_post=R_post))
-            break
-        else:
-            # If not embedding, recursively process submodules.
-            replace_embedding_with_rotation_embedding(module, rotation_map, prefix=full_name)
-    return model
 
 
 def model_down_proj_groupsize(model, groupsize):
@@ -242,7 +230,7 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
     for param in model.parameters():
         param.requires_grad = False
 
-    model.config.use_cache = False
+    set_config_attribute(model, "use_cache", False)
 
     # Prepare rotation matrix
     num_layers = model.config.num_hidden_layers
@@ -294,19 +282,19 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
                         R4[i] = NoLearnRotateModule(get_orthogonal_matrix(hidden_dim, mode="identity", device=device))
 
 
-    # 添加在线旋转矩阵 R4
+    # Add the online rotation matrix R4.
     model_type = model.config.model_type
-    # 动态导入对应的 modeling 模块
+    # Dynamically import the corresponding modeling module.
     try:
         modeling_module = importlib.import_module(f"modeling.{model_type}")
     except ModuleNotFoundError:
         raise ImportError(f"Cannot find modeling module for '{model_type}' (expected modeling/{model_type}.py)")
 
-    # 检查模块中是否定义了 apply_R4_change_model
+    # Check whether `apply_R4_change_model` is defined in the module.
     if not hasattr(modeling_module, "apply_R4_change_model"):
         raise AttributeError(f"'modeling.{model_type}' does not define function 'apply_R4_change_model'")
 
-    # 调用函数
+    # Call the function.
     func = getattr(modeling_module, "apply_R4_change_model")
     if local_rank == 0:
         log.info(f"✅ Found 'apply_R4_change_model' in modeling.{model_type}, now calling it...")
@@ -334,31 +322,34 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
                 )
                 # quantize other layers with gptq
                 gptq_fwrd(model, trainloader, quant_configs.weight)
+             
+        # Prepare the rotation matrix and the rotation position
+        rotation_map = build_rotation_map(model, R1, R2, R4)
 
         # Add all the quantizers, replacing the linear layer with RotationQuantLinear that does not contain rotation matrices
-        # (with the parameter rotation_map set to None)
-        model = replace_linear_with_rotation_quant(
-            model,
-            quant_configs=quant_configs,
+        # Because `rotate_model` has already rotated the weights.
+        model = replace_modules_with_rotation(
+            model, 
+            quant_configs=quant_configs, 
+            rotation_map=rotation_map,
+            is_rotated=False
         )
     else:
         # Prepare the rotation matrix and the rotation position
-        rotation_map = build_rotation_map(num_layers, R1, R2, R4)
+        rotation_map = build_rotation_map(model, R1, R2, R4)
 
-        # Call the replacement function, replace the linear layer, and add the rotation matrix and quantizer
-        model = replace_linear_with_rotation_quant(
-            model,
-            quant_configs=quant_configs,
-            rotation_map=rotation_map
+        # Call the replacement function, replace the linear layer and embedding layer, and add the rotation matrix and quantizer
+        model = replace_modules_with_rotation(
+            model, 
+            quant_configs=quant_configs, 
+            rotation_map=rotation_map,
+            is_rotated=True
         )
 
-        # Call the replacement function, replace the Embedding layer, and add the rotation matrix and quantizer
-        model = replace_embedding_with_rotation_embedding(
-            model,
-            rotation_map=rotation_map
-        )
+    # All linear layers must first be replaced with `RotationQuantLinear`. 
+    # Then the following function is called to add quantization operations to the Value, 
+    # while also applying online rotation R3 and quantization to the Query and Key.
 
-    # 必须要先将所有的 linear 替换成 RotationQuantLinear，然后再调用下面函数为 Value 添加量化操作，同时还对 Query、Key 添加在线旋转 R3、量化操作
     add_qkv_rotation_quant(model, R3, quant_configs.query, quant_configs.key, quant_configs.value, local_rank=local_rank)
     # if ptq_args.q_bits < 32:
     #     torch.nn.functional.scaled_dot_product_attention = Quant_scaled_dot_product_attention
@@ -371,7 +362,7 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
 
 
     if ptq_args.stage == "train" or not ptq_args.trainable_R:
-        # 默认每层都需要在线旋转矩阵 R4
+        # By default, each layer requires the online rotation matrix R4.
         adaptive_R4 = {i: True for i in range(num_layers)}
         # Initialize all quantizers using the calibration set.
         if quant_configs.weight.mode == "static":
@@ -410,7 +401,10 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
 
                 if ptq_args.adaptive_mixed_precision:
                     model = adapt_modify_quantization_precision(model, adaptive_R4, batch, batch_find_threshold, ptq_args, local_rank)
-
+    
+    if local_rank == 0:
+        log.info(model)
+    
     if ptq_args.stage == "train":
         # 将 q_proj、k_proj、v_proj 前的激活量化器中的 scale、zero_point 共享同一个参数
         # 将 gate_proj、up_proj 前的激活量化器中的 scale、zero_point 共享同一个参数

@@ -1,6 +1,7 @@
 import torch.nn as nn
 from tqdm import tqdm
-from transformers.models.qwen2.modeling_qwen2 import Qwen2MLP
+from transformers.models.qwen2_vl.modeling_qwen2_vl import Qwen2MLP
+from utils.utils import get_text_tower
 
 
 class Qwen2MLPWithR4(nn.Module):
@@ -30,7 +31,10 @@ def apply_R4_change_model(model, R4_list, local_rank=None):
     """
     if local_rank is None:
         local_rank = 0
-    layers = model.model.layers
+
+    _, text_model = get_text_tower(model)
+    layers = text_model.layers
+    
     for i in tqdm(range(len(layers)), desc="Replace Qwen2MLP with Qwen2MLPWithR4", disable=not (local_rank == 0)):
         layer = layers[i]
         for name, module in layer.named_children():

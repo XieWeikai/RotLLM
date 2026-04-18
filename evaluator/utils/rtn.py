@@ -6,7 +6,7 @@ import copy
 
 from .weight_quant import WeightQuantizer
 from train.config import QuantizeConfig
-from utils.utils import cleanup_memory
+from utils.utils import cleanup_memory, get_text_tower
 
 
 def find_qlayers(module, layers=[nn.Linear, nn.Embedding], name: str = ""):
@@ -25,7 +25,9 @@ def find_qlayers(module, layers=[nn.Linear, nn.Embedding], name: str = ""):
 
 @torch.no_grad()
 def rtn_fwrd(model, wConfig: QuantizeConfig):
-    layers = model.model.layers
+    parent_path, text_model = get_text_tower(model)
+    layers = text_model.layers
+    layer_prefix = f"{parent_path}.layers"
     quantizers = {}
 
     for i in tqdm(range(len(layers)), desc="(RtN Quant.) Layers"):
@@ -46,7 +48,7 @@ def rtn_fwrd(model, wConfig: QuantizeConfig):
             quantizer.find_params(W)
             q, int_weight, scale = quantizer.fake_quantize(W)
             subset[name].weight.data = q.to(next(iter(layer.parameters())).dtype)
-            quantizers["model.layers.%d.%s" % (i, name)] = quantizer
+            quantizers[f"{layer_prefix}.{i}.{name}"] = quantizer
 
     cleanup_memory(verbos=True)
     return quantizers

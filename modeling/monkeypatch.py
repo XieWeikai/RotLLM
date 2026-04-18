@@ -8,7 +8,7 @@ import inspect
 
 from train.config import QuantizeConfig
 from train.train_parameter import FakeQuantizer
-from utils.utils import log
+from utils.utils import log, get_text_tower
 
 
 def copy_func_with_new_globals(f, globals=None):
@@ -171,9 +171,22 @@ def add_v_quant_wrapper_after_function_call_in_forward(module, function_name, *a
 def add_qkv_rotation_quant(model, R3_list, q_quant_config: QuantizeConfig, k_quant_config: QuantizeConfig, v_quant_config: QuantizeConfig, to_quant: bool = True, local_rank=None):
     if local_rank is None:
         local_rank = 0
-    qk_rope_function_name = "apply_rotary_pos_emb"
+    qk_rope_function_name = "apply_multimodal_rotary_pos_emb"
+
+    # ================= 核心修改：动态设置 RoPE 函数名 =================  
+    # 构建映射表：特殊命名的写在这里，没写的统统走默认值
+    rope_func_map = {
+        "qwen2_vl": "apply_multimodal_rotary_pos_emb",
+        "qwen3_vl": "apply_rotary_pos_emb",
+    }
+    
+    # 动态获取，如果字典里没有这个 model_type，就默认使用 "apply_rotary_pos_emb"
+    qk_rope_function_name = rope_func_map.get(model.config.model_type, "apply_rotary_pos_emb")
+    # =================================================================
+
     v_proj_function_name = "my_Flinear"
-    layers = model.model.layers
+    _, text_model = get_text_tower(model)
+    layers = text_model.layers
     
     for i in tqdm(range(len(layers)), desc="Wrapping apply_rotary_pos_emb and v_proj", disable=not (local_rank == 0)):
         layer = layers[i]

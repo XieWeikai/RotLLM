@@ -1,6 +1,6 @@
 import os
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForVision2Seq, AutoTokenizer, AutoConfig
 from datasets import load_dataset
 from transformers import Trainer, default_data_collator
 import datetime
@@ -36,49 +36,50 @@ def runner() -> None:
     device = "cuda"
     dtype = torch.bfloat16 if training_args.bf16 else torch.float32
 
-    model_orig = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=model_args.input_model, torch_dtype=dtype).to(device=device)
+    config = AutoConfig.from_pretrained(model_args.input_model, trust_remote_code=True)
+    
+    if local_rank == 0:
+        log.info(f"📸 Loading Vision-Language Model (Type: {config.model_type})...")
 
-    tokenizer_classes = {
-        "llama": "LlamaTokenizerFast",
-        "qwen2": "Qwen2TokenizerFast",
-    }
-    tokenizer = None
-    tokenizer_class_name = tokenizer_classes.get(model_orig.config.model_type)
-    
-    if tokenizer_class_name is not None:
-        try:
-            tokenizer_class = getattr(__import__('transformers'), tokenizer_class_name)
-            if local_rank == 0:
-                log.info(f"Attempting to use {tokenizer_class.__name__}.")
-            tokenizer = tokenizer_class.from_pretrained( 
-                pretrained_model_name_or_path=model_args.input_model,
-                cache_dir=training_args.cache_dir,              
-                model_max_length=training_args.model_max_length,
-                padding_side="right",
-                use_fast=True,
-                add_eos_token=False,
-                add_bos_token=False,
-            )
-            if local_rank == 0:
-                log.info(f"✅ Successfully loaded {tokenizer_class.__name__}.")
-        except Exception as e:
-            if local_rank == 0:
-                log.warning(f"Failed to load {tokenizer_class_name}: {e}")
-            tokenizer = None
-    
-    # 如果加载 Fast tokenizer 失败，则回退到 AutoTokenizer
-    if tokenizer is None:
+    model_orig = AutoModelForVision2Seq.from_pretrained(
+        pretrained_model_name_or_path=model_args.input_model, 
+        torch_dtype=dtype, 
+        trust_remote_code=True
+    ).to(device=device)
+
+    # ================= 补丁：精选 text_config 核心属性提权到最外层 =================
+    if hasattr(model_orig.config, "text_config"):
         if local_rank == 0:
-            log.info("✅ Using AutoTokenizer.")
-        tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name_or_path=model_args.input_model,
-            cache_dir=training_args.cache_dir,
-            model_max_length=training_args.model_max_length,
-            padding_side="right",
-            add_eos_token=False,
-            add_bos_token=False,
-        )
+            log.info("🛠️ Monkey-patching: Copying specific text_config attributes to main config...")
         
+        # 纯文本量化和评估脚本最常强行读取的几个核心结构参数
+        keys_to_patch = [
+            "num_hidden_layers",     # 层数（必选）
+            "hidden_size",           # 隐藏层维度
+            "num_attention_heads",   # Q头数
+            "num_key_value_heads",   # KV头数
+            "intermediate_size",     # MLP中间层维度
+        ]
+        
+        for key in keys_to_patch:    
+            if not hasattr(model_orig.config, key):
+                value = getattr(model_orig.config.text_config, key)
+                setattr(model_orig.config, key, value)
+            else:
+                log.warning(f"🚨 Configuration conflict! Attribute '{key}' already exists in the main config and conflicts with a key in text_config.")
+    # ======================================================================
+
+    if local_rank == 0:
+        log.info("✅ Using AutoTokenizer.")
+    tokenizer = AutoTokenizer.from_pretrained(
+        pretrained_model_name_or_path=model_args.input_model,
+        cache_dir=training_args.cache_dir,
+        model_max_length=training_args.model_max_length,
+        padding_side="right",
+        add_eos_token=False,
+        add_bos_token=False,
+        trust_remote_code=True
+    )
     if local_rank == 0:
         log.info(f"Complete tokenizer loading...")
 
@@ -173,7 +174,7 @@ def runner() -> None:
             if "outActQuant" not in key and "qQuant" not in key and "kQuant" not in key and "vQuant" not in key:
                 R_dict[f"{key}.config.num_bits"] = value.num_bits
 
-        # 保存需要 online rotation R4 的层
+        # Save the layers that require online rotation R4.
         R_dict["adaptive_R4"] = adaptive_R4       
 
         if local_rank == 0:

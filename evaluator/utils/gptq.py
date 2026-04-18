@@ -8,7 +8,7 @@ import torch.nn as nn
 from tqdm import tqdm
 
 
-from utils.utils import cleanup_memory, log
+from utils.utils import cleanup_memory, log, get_text_tower, set_config_attribute, restore_config_attribute
 from train.config import QuantizeConfig
 from .weight_quant import WeightQuantizer
 
@@ -177,10 +177,13 @@ def gptq_fwrd(model, dataloader, wConfig: QuantizeConfig):
     """
     logging.info("-----GPTQ Quantization-----")
 
-    use_cache = model.config.use_cache
-    model.config.use_cache = False
-    layers = model.model.layers
+    use_cache = set_config_attribute(model, "use_cache", False)
+ 
+    parent_path, text_model = get_text_tower(model)
+    layers = text_model.layers
     dev = model.device
+
+    layer_prefix = f"{parent_path}.layers"
 
     dtype = next(iter(model.parameters())).dtype
     inps = torch.zeros(
@@ -193,6 +196,9 @@ def gptq_fwrd(model, dataloader, wConfig: QuantizeConfig):
         def __init__(self, module):
             super().__init__()
             self.module = module
+
+            if hasattr(module, "attention_type"):
+                self.attention_type = module.attention_type
 
         def forward(self, inp, **kwargs):
             inps[cache["i"]] = inp
@@ -273,7 +279,7 @@ def gptq_fwrd(model, dataloader, wConfig: QuantizeConfig):
                     actorder=wConfig.act_order,
                     static_groups=False,
                 )
-                quantizers["model.layers.%d.%s" % (i, name)] = gptq[name].quantizer
+                quantizers[f"{layer_prefix}.{i}.{name}"] = gptq[name].quantizer
                 gptq[name].free()
 
         for j in range(wConfig.nsamples):
@@ -289,7 +295,8 @@ def gptq_fwrd(model, dataloader, wConfig: QuantizeConfig):
 
         inps, outs = outs, inps
 
-    model.config.use_cache = use_cache
+    restore_config_attribute(model, "use_cache", use_cache)
+
     cleanup_memory(verbos=True)
     log.info("-----GPTQ Quantization Done-----\n")
     return quantizers

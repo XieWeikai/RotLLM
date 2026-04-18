@@ -5,45 +5,30 @@ import torch.nn as nn
 from train.train_utils import build_rotation_map
 
 
-def add_rotation_to_linear(
-    model: nn.Module,
-    rotation_map: dict = None,
-    prefix: str = ""  # Record parent path
-):
+def add_rotation_to_linear(model: nn.Module, rotation_map: dict):
     """
-    Merge all mergeable rotation matrices into all nn.Linear layers of the model
+    Merge all mergeable rotation matrices into the specific layers defined in rotation_map.
 
     Args:
         model (nn.Module): original model
         rotation_map (dict): key=module name, value=(R_pre, R_post, rotation_pos)
-        prefix (str): Record the parent path in order to extract the rotation configuration from the rotation_map.
-    Returns:
-        nn.Module: Merged model completed
     """
+    if not rotation_map:
+        return
 
-    # Traverse the model module, recording the parent module and name.
-    for name, module in model.named_children():
-        full_name = f"{prefix}.{name}" if prefix else name
+    # 直接遍历白名单字典
+    for full_name, (R_pre, R_post, rotation_pos) in rotation_map.items():
+        try:
+            # 根据字符串路径，直接从模型中抓取该层的实例
+            module = model.get_submodule(full_name)
+        except AttributeError:
+            print(f"Warning: Module {full_name} not found in model. Skipping.")
+            continue
 
-        # If the submodules are nn.Linear and nn.embedding, replace them.
         if isinstance(module, nn.Linear):
-            R_pre, R_post, rotation_pos = None, None, "none"
-            if rotation_map and full_name in rotation_map:
-                R_pre, R_post, rotation_pos = rotation_map[full_name]
-
-            # Rotating weights
             rotate_linear(module, R_pre, R_post, rotation_pos)
         elif isinstance(module, nn.Embedding):
-            R_pre, R_post, rotation_pos = None, None, "none"
-            if rotation_map and full_name in rotation_map:
-                R_pre, R_post, rotation_pos = rotation_map[full_name]
-
-            # Rotating weights
             rotate_embedding(module, R_pre, R_post, rotation_pos)
-        else:
-            # Recursive processing of submodules
-            add_rotation_to_linear(module, rotation_map, prefix=full_name)
-
 
 
 def rotate_linear(module: nn.Linear, R_pre, R_post, rotation_pos):
@@ -96,6 +81,6 @@ def rotate_embedding(module: nn.Embedding, R_pre, R_post, rotation_pos):
 
 def rotate_model(model, R1, R2, R4):
     num_layers = model.config.num_hidden_layers
-    rotation_map = build_rotation_map(num_layers, R1, R2, R4)
+    rotation_map = build_rotation_map(model, R1, R2, R4)
     add_rotation_to_linear(model, rotation_map)
    
