@@ -1,4 +1,4 @@
-# RotLLM
+# RotVLM
 This is an implementation of [SpinQuant](https://arxiv.org/abs/2405.16406) and [QuaRot](https://arxiv.org/abs/2404.00456) for different vision language models like Qwen2-vl. We are not intented to do exactly the same things as SpinQuant and QuaRot, instead we provide a framework to customize rotation operations for any models you want to use.
 
 ## Requirements
