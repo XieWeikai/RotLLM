@@ -9,9 +9,10 @@
 # nproc_per_node indicates the number of GPUs per node to employ.
 
 # For example: bash scripts/spinquant/eval.sh /data/share/Qwen2-VL-2B-Instruct 8 8 8
+# For example: bash scripts/spinquant/eval.sh /data/share/Qwen2.5-VL-3B-Instruct 8 8 8
 # For example: bash scripts/spinquant/eval.sh /data/share/Qwen3-VL-2B-Instruct 8 8 8
 export HF_ENDPOINT=https://hf-mirror.com
-CUDA_VISIBLE_DEVICES=5 torchrun --nnodes=1 --nproc_per_node=1 --master_port=60010 -m runner.runner \
+CUDA_VISIBLE_DEVICES=6 torchrun --nnodes=1 --nproc_per_node=1 --master_port=60012 -m runner.runner \
 --stage "eval" \
 --input_model $1 \
 --do_train False \

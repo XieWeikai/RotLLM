@@ -1,6 +1,6 @@
 import os
 import torch
-from transformers import AutoModelForVision2Seq, AutoTokenizer, AutoConfig
+from transformers import AutoModelForVision2Seq, AutoTokenizer, AutoConfig, AutoProcessor
 from datasets import load_dataset
 from transformers import Trainer, default_data_collator
 import datetime
@@ -82,6 +82,14 @@ def runner() -> None:
     )
     if local_rank == 0:
         log.info(f"Complete tokenizer loading...")
+
+    processor = AutoProcessor.from_pretrained(
+        model_args.input_model,
+        cache_dir=training_args.cache_dir,
+        trust_remote_code=True
+    )
+    if local_rank == 0:
+        log.info(f"Complete processor loading...")
 
     # Prepare training data and calibration set.
     dataset = load_dataset("Salesforce/wikitext", "wikitext-2-raw-v1")
@@ -204,6 +212,9 @@ def runner() -> None:
         #                 # 标量 scale / zero_point
         #                 f.write(f"{k}: {v.detach().cpu().item()}\n")
     else:
+        from evaluator.chat import chat
+        chat(model, processor)
+
         log.info("Model init completed for evaling...")
         log.info("💡Start to eval...")
         

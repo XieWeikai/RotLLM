@@ -305,6 +305,12 @@ def prepare_model(model, dataset, quant_configs: AllQuantizeConfigs, ptq_args, m
         # Combining compatible rotation matrices
         rotate_model(model, R1.weight, [module.weight for module in R2], [module.weight for module in R4])
 
+        # target_dtype = torch.bfloat16 
+        # model.to(dtype=target_dtype)
+        # model.config.dtype = target_dtype
+        # model.config.text_config.dtype = target_dtype        
+        # model.save_pretrained("/data/share/Qwen3-VL-2B-Instruct-rotated-test-zjh", safe_serialization=True)
+
         if ptq_args.mode == "dynamic":
             # Complete the calibration of GPTQ quantization, simulate the quantization of weights, and truly update the weights
             if ptq_args.w_rtn:

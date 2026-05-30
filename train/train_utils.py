@@ -52,32 +52,38 @@ def build_rotation_map(
     text_layers_prefix = f"{parent_path}.layers."
 
     for name, module in model.named_modules():
-        if not name.startswith(text_layers_prefix):
-            continue
-
-        # 通过正则提取当前层的索引 (比如 "model.layers.5.self_attn.q_proj" -> 提取出 5)
-        match = re.search(r'\.(\d+)\.', name)
-        if not match:
-            continue
+        if name.startswith(text_layers_prefix):
+            # language:
             
-        layer_idx = int(match.group(1))
+            # 通过正则提取当前层的索引 (比如 "model.layers.5.self_attn.q_proj" -> 提取出 5)
+            match = re.search(r'\.(\d+)\.', name)
+            if not match:
+                continue
+                
+            layer_idx = int(match.group(1))
 
-        R2_idx = R2[layer_idx]
-        R4_idx = R4[layer_idx]
+            R2_idx = R2[layer_idx]
+            R4_idx = R4[layer_idx]
 
+            # Attention
+            if name.endswith(".q_proj") or name.endswith(".k_proj"):
+                rotation_map[name] = (R1, None, "pre")
+            elif name.endswith(".v_proj"):
+                rotation_map[name] = (R1, R2_idx, "around")
+            elif name.endswith(".o_proj"):
+                rotation_map[name] = (R2_idx, R1, "around")
 
-        # Attention
-        if name.endswith(".q_proj") or name.endswith(".k_proj"):
-            rotation_map[name] = (R1, None, "pre")
-        elif name.endswith(".v_proj"):
-            rotation_map[name] = (R1, R2_idx, "around")
-        elif name.endswith(".o_proj"):
-            rotation_map[name] = (R2_idx, R1, "around")
-
-        # MLP
-        elif name.endswith(".gate_proj") or name.endswith(".up_proj"):
-            rotation_map[name] = (R1, None, "pre")
-        elif name.endswith(".down_proj"):
-            rotation_map[name] = (R4_idx, R1, "around")
+            # MLP
+            elif name.endswith(".gate_proj") or name.endswith(".up_proj"):
+                rotation_map[name] = (R1, None, "pre")
+            elif name.endswith(".down_proj"):
+                rotation_map[name] = (R4_idx, R1, "around")
+        else:
+            # vision:
+            if name.endswith("merger.mlp.2"):
+                rotation_map[name] = (None, R1, "post")
+            
+            if name.endswith("merger.linear_fc2") or name.endswith("deepstack_merger_list.0.linear_fc2") or name.endswith("deepstack_merger_list.1.linear_fc2") or name.endswith("deepstack_merger_list.2.linear_fc2"):
+                rotation_map[name] = (None, R1, "post")
 
     return rotation_map

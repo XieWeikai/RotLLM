@@ -177,6 +177,7 @@ def add_qkv_rotation_quant(model, R3_list, q_quant_config: QuantizeConfig, k_qua
     # 构建映射表：特殊命名的写在这里，没写的统统走默认值
     rope_func_map = {
         "qwen2_vl": "apply_multimodal_rotary_pos_emb",
+        "qwen2_5_vl": "apply_multimodal_rotary_pos_emb",
         "qwen3_vl": "apply_rotary_pos_emb",
     }
     
